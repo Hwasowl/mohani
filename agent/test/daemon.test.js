@@ -29,7 +29,7 @@ describe('daemon — /agent/event', () => {
   });
 
   it('drops payload when in private mode', async () => {
-    const app = createApp({ isPrivate: true });
+    const app = createApp({ getConfig: () => ({ isPrivate: true, blacklistedDirs: [] }) });
     const res = await request(app)
       .post('/agent/event')
       .send({ event: 'UserPromptSubmit', prompt: 'whatever' });
@@ -39,7 +39,7 @@ describe('daemon — /agent/event', () => {
   });
 
   it('drops payload from blacklisted dir', async () => {
-    const app = createApp({ blacklistedDirs: ['/work/erp'] });
+    const app = createApp({ getConfig: () => ({ isPrivate: false, blacklistedDirs: ['/work/erp'] }) });
     const res = await request(app)
       .post('/agent/event')
       .send({ event: 'UserPromptSubmit', cwd: '/work/erp/src', prompt: 'x' });

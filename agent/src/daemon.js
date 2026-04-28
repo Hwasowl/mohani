@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-// Mohani local daemon — Claude Code hook 수신 → 마스킹/필터 → (W1) console 출력.
+// Mohani local daemon — Claude Code hook 수신 → 마스킹/필터 → 백엔드 송신.
 // 24555 → 24556 → 24557 자동 폴백.
 
 import express from 'express';
+import { load, save } from './config-store.js';
 import { normalizeEvent } from './events.js';
+import { createTransport } from './transport.js';
 
 const PORT_CANDIDATES = [24555, 24556, 24557];
 
@@ -12,24 +14,50 @@ export function createApp(state = {}) {
   app.use(express.json({ limit: '256kb' }));
 
   app.get('/health', (_req, res) => {
-    res.json({ ok: true, version: '0.1.0' });
+    res.json({ ok: true, version: '0.1.0', queueDepth: state.transport?.queueDepth?.() ?? 0 });
   });
 
-  app.post('/agent/event', (req, res) => {
+  // Electron이 데몬에서 현재 사용자 정보·비공개 토글을 폴링/제어할 때 사용.
+  app.get('/state', (_req, res) => {
+    const cfg = state.getConfig?.() ?? {};
+    res.json({
+      loggedIn: Boolean(cfg.token),
+      userId: cfg.userId ?? null,
+      displayName: cfg.displayName ?? null,
+      backendUrl: cfg.backendUrl ?? null,
+      isPrivate: cfg.isPrivate ?? false,
+      blacklistedDirs: cfg.blacklistedDirs ?? [],
+    });
+  });
+
+  app.post('/state/privacy', (req, res) => {
+    const next = Boolean(req.body?.isPrivate);
+    const cfg = state.getConfig?.() ?? {};
+    save({ ...cfg, isPrivate: next });
+    state.refreshConfig?.();
+    res.json({ ok: true, isPrivate: next });
+  });
+
+  app.post('/agent/event', async (req, res) => {
+    const cfg = state.getConfig?.() ?? {};
     const result = normalizeEvent(req.body, {
-      isPrivate: state.isPrivate ?? false,
-      blacklistedDirs: state.blacklistedDirs ?? [],
+      isPrivate: cfg.isPrivate ?? false,
+      blacklistedDirs: cfg.blacklistedDirs ?? [],
     });
 
     if (result.dropped) {
-      // 200으로 응답 — hook은 성공 처리, 단지 우리가 무음 드롭
       return res.json({ ok: true, dropped: true, reason: result.reason });
     }
 
-    // W1: console 출력. W2부터 transport.js 로 백엔드 송신.
     state.lastEvent = result.normalized;
     if (state.onEvent) state.onEvent(result.normalized);
-    return res.json({ ok: true, normalized: result.normalized });
+
+    let backend = null;
+    if (state.transport) {
+      backend = await state.transport.send(result.normalized);
+    }
+
+    return res.json({ ok: true, normalized: result.normalized, backend });
   });
 
   return app;
@@ -57,13 +85,24 @@ export function listenWithFallback(app, ports = PORT_CANDIDATES) {
   });
 }
 
-// CLI 진입 (npm bin)
 const isMain = import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`;
 if (isMain) {
-  const app = createApp({});
+  let cfg = load();
+  const state = {
+    getConfig: () => cfg,
+    refreshConfig: () => { cfg = load(); },
+  };
+  state.transport = createTransport({ getConfig: () => cfg });
+  state.onEvent = (e) => {
+    if (process.env.MOHANI_LOG === 'verbose') {
+      console.log('[mohani-agent] event', e.event, e.promptFirstLine ?? e.toolName ?? '');
+    }
+  };
+  const app = createApp(state);
   listenWithFallback(app)
     .then(({ port }) => {
       console.log(`[mohani-agent] listening on http://127.0.0.1:${port}`);
+      console.log(`[mohani-agent] backend=${cfg.backendUrl} loggedIn=${Boolean(cfg.token)}`);
     })
     .catch((err) => {
       console.error('[mohani-agent] failed to start:', err.message);
