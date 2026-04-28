@@ -47,6 +47,23 @@ export function createApp(state = {}) {
     res.json({ ok: true, isPrivate: next });
   });
 
+  // Electron이 로그인 후 데몬에 토큰을 주입 — hook이 백엔드로 흘러가게 만든다.
+  // 누락된 필드는 기존 cfg 값을 보존.
+  app.post('/state/session', (req, res) => {
+    const cfg = state.getConfig?.() ?? {};
+    const body = req.body ?? {};
+    const next = {
+      ...cfg,
+      backendUrl: body.backendUrl ?? cfg.backendUrl,
+      token: body.token ?? cfg.token,
+      userId: body.userId ?? cfg.userId,
+      displayName: body.displayName ?? cfg.displayName,
+    };
+    save(next);
+    state.refreshConfig?.();
+    res.json({ ok: true, loggedIn: Boolean(next.token), userId: next.userId });
+  });
+
   app.post('/agent/event', async (req, res) => {
     const cfg = state.getConfig?.() ?? {};
     const result = normalizeEvent(req.body, {

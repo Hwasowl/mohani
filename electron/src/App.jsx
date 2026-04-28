@@ -7,6 +7,7 @@ import {
   listMyTeams,
   listTeamMembers,
   loginAnonymous,
+  pushAgentSession,
   session,
   setAgentPrivacy,
   setBackendUrl,
@@ -110,6 +111,12 @@ export default function App() {
     });
     return dispose;
   }, [me, activeTeam]);
+
+  // me가 바뀔 때마다 (로그인/닉네임 변경) 데몬에 토큰 동기화 — hook이 백엔드로 흘러가게.
+  useEffect(() => {
+    if (!me?.token) return;
+    pushAgentSession({ token: me.token, userId: me.userId, displayName: me.displayName });
+  }, [me?.token, me?.userId, me?.displayName]);
 
   useEffect(() => {
     let cancelled = false;

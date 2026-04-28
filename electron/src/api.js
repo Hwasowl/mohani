@@ -101,6 +101,22 @@ export async function setAgentPrivacy(isPrivate) {
   return null;
 }
 
+// 로그인 후 데몬이 토큰을 모르면 hook 이벤트를 백엔드로 못 보낸다 — 즉시 동기화한다.
+export async function pushAgentSession({ token, userId, displayName }) {
+  const backendUrl = getBackendUrl();
+  for (const port of AGENT_PORTS) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/state/session`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token, userId, displayName, backendUrl }),
+      });
+      if (r.ok) return await r.json();
+    } catch {}
+  }
+  return null;
+}
+
 export function generateDeviceId() {
   return crypto.randomUUID();
 }

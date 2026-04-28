@@ -1,5 +1,10 @@
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+// config-store.save가 실제 ~/.mohani에 쓰지 않도록 mock — 사용자 환경 보호
+vi.mock('../src/config-store.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, save: vi.fn() };
+});
 import { createApp, listenWithFallback } from '../src/daemon.js';
 
 describe('daemon — /health', () => {
@@ -71,6 +76,55 @@ describe('daemon — /agent/event', () => {
       .send({ event: 'PreToolUse', tool_name: 'Bash' });
     expect(seen).toHaveLength(1);
     expect(seen[0].toolName).toBe('Bash');
+  });
+});
+
+describe('daemon — /state/session (Electron 토큰 동기화)', () => {
+  it('persists token + refreshes config; reports loggedIn=true', async () => {
+    const refreshes = [];
+    const state = {
+      getConfig: () => ({ backendUrl: 'http://x' }),
+      refreshConfig: () => refreshes.push(1),
+    };
+    const app = createApp(state);
+    const res = await request(app)
+      .post('/state/session')
+      .send({ token: 'abc', userId: 7, displayName: '화소' });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.loggedIn).toBe(true);
+    expect(res.body.userId).toBe(7);
+    expect(refreshes).toHaveLength(1);
+  });
+
+  it('reports loggedIn=false when no token in body or cfg', async () => {
+    const state = { getConfig: () => ({}), refreshConfig: () => {} };
+    const app = createApp(state);
+    const res = await request(app).post('/state/session').send({});
+    expect(res.status).toBe(200);
+    expect(res.body.loggedIn).toBe(false);
+  });
+
+  it('preserves existing cfg fields when body omits them', async () => {
+    let savedSnapshot = null;
+    // mock save를 통해 실제 저장된 객체 검증
+    const cs = await import('../src/config-store.js');
+    cs.save.mockImplementationOnce((next) => { savedSnapshot = next; });
+
+    const state = {
+      getConfig: () => ({ backendUrl: 'http://orig', token: 'old', userId: 1, isPrivate: true }),
+      refreshConfig: () => {},
+    };
+    const app = createApp(state);
+    await request(app)
+      .post('/state/session')
+      .send({ token: 'newtok', userId: 2, displayName: 'Z' }); // backendUrl 누락
+
+    expect(savedSnapshot.token).toBe('newtok');
+    expect(savedSnapshot.userId).toBe(2);
+    expect(savedSnapshot.displayName).toBe('Z');
+    expect(savedSnapshot.backendUrl).toBe('http://orig'); // 기존값 유지
+    expect(savedSnapshot.isPrivate).toBe(true); // 다른 필드 유지
   });
 });
 
