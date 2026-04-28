@@ -30,6 +30,12 @@ spring:
 server:
   port: 8080
 
+mohani:
+  jwt:
+    # 운영환경에서는 환경변수로 주입. dev 기본값 (256bit hex 가짜 시크릿)
+    secret: ${MOHANI_JWT_SECRET:dev-secret-change-me-1234567890abcdef1234567890abcdef}
+    ttl-seconds: 2592000   # 30일
+
 management:
   endpoints:
     web:
