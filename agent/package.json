@@ -1,22 +1,37 @@
 {
-  "name": "@mohani/agent",
+  "name": "mohani",
   "version": "0.1.0",
-  "description": "Mohani local agent — Claude Code hook receiver, masking, backend transport",
+  "description": "Mohani — share what you're doing with AI CLIs to your friends. One install, one command.",
   "private": false,
   "type": "module",
+  "files": [
+    "src/**/*.js",
+    "scripts/**/*.js",
+    "ui/**/*",
+    "electron-main.cjs",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Hwasowl/mohani.git",
+    "directory": "agent"
+  },
+  "license": "MIT",
   "bin": {
     "mohani": "./src/cli.js",
     "mohani-agent": "./src/daemon.js",
     "mohani-hook": "./src/hook-cli.js"
   },
   "scripts": {
-    "start": "node src/daemon.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "build:ui": "node scripts/build-ui.js",
+    "prepublishOnly": "npm run build:ui",
     "postinstall": "node scripts/postinstall.js",
     "preuninstall": "node scripts/preuninstall.js"
   },
   "dependencies": {
+    "electron": "^33.4.11",
     "express": "^4.21.2"
   },
   "devDependencies": {

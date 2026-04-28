@@ -7,7 +7,7 @@ import { ensureDeviceId, load, save } from './config-store.js';
 import { createTeam, joinTeam, loginAnonymous } from './backend-client.js';
 
 const CMDS = {
-  status, login, team, privacy, hooks, help,
+  start, status, login, team, privacy, hooks, help,
 };
 
 async function main() {
@@ -29,11 +29,12 @@ function help() {
   console.log(`mohani — AI CLI 활동을 친구에게 공유
 
 사용법:
+  mohani start                                   데몬 + UI를 한 번에 실행 (가장 일반적)
   mohani login [--name=닉네임] [--backend=URL]   익명 가입 + 토큰 저장
   mohani team create <팀이름>                    팀 생성 → 6자리 코드 출력
   mohani team join <팀코드>                      팀 가입
   mohani privacy on|off                          비공개 모드 토글
-  mohani hooks install                           ~/.claude/settings.json에 mohani hook 등록 (백업 후 머지)
+  mohani hooks install                           ~/.claude/settings.json에 mohani hook 등록
   mohani hooks status                            현재 등록된 mohani hook 개수 확인
   mohani hooks uninstall                         mohani hook만 제거 (다른 hook 보존)
   mohani status                                  현재 설정/로그인 상태
@@ -140,6 +141,61 @@ async function hooks(rest) {
     return;
   }
   throw new Error('usage: mohani hooks install|uninstall|status');
+}
+
+async function start() {
+  const { spawn } = await import('node:child_process');
+  const { existsSync } = await import('node:fs');
+
+  // 1) Hooks 등록 보장 (postinstall이 실패했거나 dev 환경 재실행 케이스)
+  try {
+    await hooks(['install']);
+  } catch (err) {
+    console.error(`mohani: hook 자동등록 실패 (${err.message}) — 계속 진행`);
+  }
+
+  // 2) UI dist 존재 확인 — npm publish된 패키지엔 ui/가 들어있어야 함
+  const uiPath = fileURLToPath(new URL('../ui/index.html', import.meta.url));
+  if (!existsSync(uiPath)) {
+    throw new Error(`UI를 찾을 수 없음: ${uiPath}\n  dev 환경이면 \`cd agent && npm run build:ui\` 먼저 실행하세요`);
+  }
+
+  // 3) Daemon 자식 프로세스 (Electron이 죽으면 같이 죽음)
+  const daemonPath = fileURLToPath(new URL('./daemon.js', import.meta.url));
+  const daemon = spawn(process.execPath, [daemonPath], {
+    stdio: 'inherit',
+    env: { ...env, MOHANI_LOG: env.MOHANI_LOG ?? 'info' },
+  });
+
+  // 4) Electron 창
+  let electronPath;
+  try {
+    const m = await import('electron');
+    electronPath = m.default;
+  } catch (err) {
+    daemon.kill();
+    throw new Error(`Electron이 설치되지 않음. \`npm install -g mohani\`로 설치하세요. (${err.message})`);
+  }
+  const mainCjs = fileURLToPath(new URL('../electron-main.cjs', import.meta.url));
+  const electron = spawn(electronPath, [mainCjs], {
+    stdio: 'inherit',
+    env,
+  });
+
+  console.log('mohani: 데몬 + UI 실행 중. 창을 닫으면 모두 종료됩니다.');
+
+  // 5) 정리 — Electron 닫히면 daemon 죽이고 종료
+  electron.on('exit', (code) => {
+    daemon.kill();
+    exit(code ?? 0);
+  });
+  daemon.on('exit', (code) => {
+    if (code !== 0) console.error(`mohani: daemon 비정상 종료 (code=${code})`);
+  });
+  // Ctrl+C도 양쪽 다 정리
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    process.on(sig, () => { daemon.kill(); electron.kill(); });
+  }
 }
 
 async function status() {

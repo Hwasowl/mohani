@@ -31,9 +31,13 @@ function buildMatcherBlock(event, commandPrefix) {
 function isMohaniHookEntry(entry) {
   if (!entry || typeof entry !== 'object' || typeof entry.command !== 'string') return false;
   const c = entry.command;
-  // global install: "mohani-hook --event=..."
-  // dev install: 'node "<abs>/agent/src/hook-cli.js" --event=...' — 식별 토큰 hook-cli.js
-  return c.startsWith(MOHANI_PREFIX) || c.includes(MOHANI_HOOK_FILE);
+  // 식별 가능한 케이스:
+  //   1) global npm install: "mohani-hook --event=..."
+  //   2) dev install: 'node "<abs>/agent/src/hook-cli.js" --event=...'
+  //   3) Electron 번들 install: '"<install-dir>/mohani-hook.cmd" --event=...'
+  return c.startsWith(MOHANI_PREFIX)
+      || c.includes(MOHANI_HOOK_FILE)
+      || c.includes('mohani-hook.cmd');
 }
 
 /**
