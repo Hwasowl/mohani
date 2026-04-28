@@ -43,12 +43,19 @@ function writeJsonPretty(path, obj) {
 /**
  * Install: backup, merge mohani hooks, write back.
  * Returns { backupPath, mode: 'created' | 'merged' | 'no-op' }.
+ *
+ * Calling forms:
+ *   installToSettings()                              // default path, default 'mohani-hook' prefix
+ *   installToSettings('/custom/path/settings.json')  // custom path (legacy form)
+ *   installToSettings({ path?, commandPrefix? })     // options form (dev mode passes commandPrefix)
  */
-export function installToSettings(path = defaultSettingsPath()) {
+export function installToSettings(arg) {
+  const opts = typeof arg === 'string' ? { path: arg } : (arg || {});
+  const path = opts.path || defaultSettingsPath();
   const { settings, existed, raw } = readJsonOrEmpty(path);
   const backupPath = existed && raw ? backup(path, raw) : null;
 
-  const merged = mergeMohaniHooks(settings);
+  const merged = mergeMohaniHooks(settings, { commandPrefix: opts.commandPrefix });
 
   if (existed && JSON.stringify(merged) === JSON.stringify(settings)) {
     return { backupPath, mode: 'no-op', path };

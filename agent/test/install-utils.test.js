@@ -162,6 +162,39 @@ describe('removeMohaniHooks', () => {
   });
 });
 
+describe('dev mode — custom commandPrefix (absolute hook-cli.js path)', () => {
+  const devPrefix = 'node "C:/Users/hwaso/OneDrive/shwa/mohani/agent/src/hook-cli.js"';
+
+  it('writes commands using the dev commandPrefix', () => {
+    const out = mergeMohaniHooks({}, { commandPrefix: devPrefix });
+    for (const event of MOHANI_EVENTS) {
+      const cmds = out.hooks[event].flatMap((b) => b.hooks.map((h) => h.command));
+      expect(cmds.some((c) => c === `${devPrefix} --event=${event}`)).toBe(true);
+    }
+  });
+
+  it('detects dev-mode entries by hook-cli.js token (idempotent install)', () => {
+    const once = mergeMohaniHooks({}, { commandPrefix: devPrefix });
+    const twice = mergeMohaniHooks(once, { commandPrefix: devPrefix });
+    expect(countMohaniHooks(twice)).toBe(MOHANI_EVENTS.length);
+  });
+
+  it('removeMohaniHooks strips dev-mode entries too', () => {
+    const installed = mergeMohaniHooks(userFixture(), { commandPrefix: devPrefix });
+    const cleaned = removeMohaniHooks(installed);
+    expect(countMohaniHooks(cleaned)).toBe(0);
+    // user의 clawd-hook은 살아있음
+    expect(cleaned.hooks.UserPromptSubmit).toHaveLength(1);
+    expect(cleaned.hooks.UserPromptSubmit[0].hooks[0].command).toContain('clawd-hook.js');
+  });
+
+  it('does not false-positive on similar-looking user hooks (clawd-hook.js)', () => {
+    // clawd-hook.js는 hook-cli.js와 다름 — 식별 토큰이 정확해야 함
+    const cleaned = removeMohaniHooks(userFixture());
+    expect(JSON.stringify(cleaned)).toBe(JSON.stringify(userFixture()));
+  });
+});
+
 describe('integration — full lifecycle preserves user state', () => {
   it('install → uninstall returns to exact original state', () => {
     const original = userFixture();

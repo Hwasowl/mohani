@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // mohani CLI — login/team 관리 + 데몬 시작/상태.
+import { existsSync, readFileSync } from 'node:fs';
 import { argv, env, exit } from 'node:process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ensureDeviceId, load, save } from './config-store.js';
 import { createTeam, joinTeam, loginAnonymous } from './backend-client.js';
 
 const CMDS = {
-  status, login, team, privacy, help,
+  status, login, team, privacy, hooks, help,
 };
 
 async function main() {
@@ -32,6 +33,9 @@ function help() {
   mohani team create <팀이름>                    팀 생성 → 6자리 코드 출력
   mohani team join <팀코드>                      팀 가입
   mohani privacy on|off                          비공개 모드 토글
+  mohani hooks install                           ~/.claude/settings.json에 mohani hook 등록 (백업 후 머지)
+  mohani hooks status                            현재 등록된 mohani hook 개수 확인
+  mohani hooks uninstall                         mohani hook만 제거 (다른 hook 보존)
   mohani status                                  현재 설정/로그인 상태
 
 환경변수:
@@ -94,6 +98,48 @@ async function privacy(rest) {
   cfg.isPrivate = mode === 'on';
   save(cfg);
   console.log(`mohani: privacy ${mode}`);
+}
+
+async function hooks(rest) {
+  const sub = rest[0] || 'status';
+  const { installToSettings, uninstallFromSettings, defaultSettingsPath } = await import('./install-fs.js');
+  const { countMohaniHooks } = await import('./install-utils.js');
+
+  if (sub === 'install') {
+    // 이 cli.js 옆의 hook-cli.js를 절대경로로 등록 → 글로벌/dev 모두 동일하게 작동
+    const hookCliPath = fileURLToPath(new URL('./hook-cli.js', import.meta.url));
+    const commandPrefix = `node "${hookCliPath}"`;
+    const r = installToSettings({ commandPrefix });
+    console.log(`mohani: hook ${r.mode} → ${r.path}`);
+    if (r.backupPath) console.log(`mohani: backup → ${r.backupPath}`);
+    console.log('mohani: 데몬을 켠 채로 (npm start 또는 mohani-agent) Claude Code 새 세션 시작 — 첫 프롬프트가 흘러갑니다');
+    return;
+  }
+  if (sub === 'uninstall') {
+    const r = uninstallFromSettings();
+    console.log(`mohani: hook ${r.mode} → ${r.path}`);
+    if (r.backupPath) console.log(`mohani: backup → ${r.backupPath}`);
+    return;
+  }
+  if (sub === 'status') {
+    const path = defaultSettingsPath();
+    if (!existsSync(path)) {
+      console.log(`mohani: settings.json 없음 (${path}) — \`mohani hooks install\` 먼저 실행하세요`);
+      return;
+    }
+    let settings = {};
+    try {
+      const raw = readFileSync(path, 'utf8');
+      settings = raw.trim() ? JSON.parse(raw) : {};
+    } catch (err) {
+      throw new Error(`settings.json 파싱 실패: ${err.message}`);
+    }
+    const n = countMohaniHooks(settings);
+    console.log(`mohani: ${n} hook(s) registered at ${path}`);
+    if (n === 0) console.log('mohani: `mohani hooks install` 로 등록하세요');
+    return;
+  }
+  throw new Error('usage: mohani hooks install|uninstall|status');
 }
 
 async function status() {

@@ -421,31 +421,26 @@ function TeamDialog({ token, onClose, onTeamReady }) {
 }
 
 function Login({ deviceId, onLoggedIn, setError, error }) {
-  const [name, setName] = useState('');
   const [backend, setBackend] = useState(getBackendUrl());
   const [busy, setBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // deviceId 기반 자동 이름 — 가입 후 메뉴에서 언제든 바꿀 수 있음
+  const autoName = useMemo(() => `친구-${deviceId.slice(0, 4)}`, [deviceId]);
+
   return (
     <div className="center">
       <div className="hero">
         <div className="hero-emoji">👋</div>
         <h1 className="hero-title">친구가 지금 뭐하나, 모하니</h1>
-        <p className="hero-sub">AI랑 코딩하는 친구들의 작업을 한눈에. 닉네임만 정하면 시작이에요.</p>
+        <p className="hero-sub">버튼 한 번이면 시작이에요. 닉네임은 나중에 메뉴에서 바꿀 수 있어요.</p>
       </div>
       <div className="card">
-        <label>닉네임</label>
-        <input
-          autoFocus
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="예: 화소"
-        />
         <div className="actions">
-          <button className="btn primary block" disabled={!name || busy} onClick={async () => {
+          <button className="btn primary block" disabled={busy} autoFocus onClick={async () => {
             setBusy(true); setError(null);
             try {
               setBackendUrl(backend);
-              const r = await loginAnonymous(deviceId, name);
+              const r = await loginAnonymous(deviceId, autoName);
               onLoggedIn(r);
             } catch (e) { setError(e.message); } finally { setBusy(false); }
           }}>{busy ? '잠시만...' : '시작하기'}</button>
@@ -459,6 +454,7 @@ function Login({ deviceId, onLoggedIn, setError, error }) {
             <label>백엔드 주소</label>
             <input value={backend} onChange={(e) => setBackend(e.target.value)} />
             <p className="hint">기기 식별자: {deviceId.slice(0, 8)}…</p>
+            <p className="hint">자동 닉네임: {autoName} (가입 후 메뉴에서 변경)</p>
           </>
         )}
       </div>

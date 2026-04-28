@@ -11,36 +11,43 @@ export const MOHANI_EVENTS = [
 ];
 
 export const MOHANI_PREFIX = 'mohani-hook';
+// dev mode: settings.json에 절대경로로 등록될 때 식별 토큰
+const MOHANI_HOOK_FILE = 'hook-cli.js';
 
-function buildHookEntry(event) {
+function buildHookEntry(event, commandPrefix) {
   return {
     type: 'command',
-    command: `${MOHANI_PREFIX} --event=${event}`,
+    command: `${commandPrefix} --event=${event}`,
   };
 }
 
-function buildMatcherBlock(event) {
+function buildMatcherBlock(event, commandPrefix) {
   return {
     matcher: '',
-    hooks: [buildHookEntry(event)],
+    hooks: [buildHookEntry(event, commandPrefix)],
   };
 }
 
 function isMohaniHookEntry(entry) {
-  return (
-    entry &&
-    typeof entry === 'object' &&
-    typeof entry.command === 'string' &&
-    entry.command.startsWith(MOHANI_PREFIX)
-  );
+  if (!entry || typeof entry !== 'object' || typeof entry.command !== 'string') return false;
+  const c = entry.command;
+  // global install: "mohani-hook --event=..."
+  // dev install: 'node "<abs>/agent/src/hook-cli.js" --event=...' — 식별 토큰 hook-cli.js
+  return c.startsWith(MOHANI_PREFIX) || c.includes(MOHANI_HOOK_FILE);
 }
 
 /**
  * Add mohani hook entries to a settings object, returning a NEW object.
  * Idempotent — safe to call multiple times.
  * Existing hook entries are never modified.
+ *
+ * options.commandPrefix — defaults to 'mohani-hook' (global install).
+ *   For dev mode, pass `node "<absPath>/hook-cli.js"` so Claude Code can locate the script.
+ * options.events — events to register (defaults to MOHANI_EVENTS).
  */
-export function mergeMohaniHooks(settings, events = MOHANI_EVENTS) {
+export function mergeMohaniHooks(settings, options = {}) {
+  const events = Array.isArray(options) ? options : (options.events || MOHANI_EVENTS);
+  const commandPrefix = (Array.isArray(options) ? null : options.commandPrefix) || MOHANI_PREFIX;
   const next = settings && typeof settings === 'object' ? { ...settings } : {};
   const hooks = next.hooks && typeof next.hooks === 'object' ? { ...next.hooks } : {};
 
@@ -53,7 +60,7 @@ export function mergeMohaniHooks(settings, events = MOHANI_EVENTS) {
         block.hooks.some(isMohaniHookEntry),
     );
     if (!alreadyHasMohani) {
-      existing.push(buildMatcherBlock(event));
+      existing.push(buildMatcherBlock(event, commandPrefix));
     }
     hooks[event] = existing;
   }
