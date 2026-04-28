@@ -46,14 +46,22 @@ cd backend
 ```bash
 cd agent
 npm install
-npm start          # → 데몬이 :24555 에서 listen
+npm link          # → mohani 명령을 전역으로 연결 (권장)
+npm start         # → 데몬이 :24555 에서 listen
 ```
 
-별도 터미널에서:
+별도 터미널에서 (어디서든 실행 가능):
 ```bash
-node agent/src/cli.js login --name=화소
-node agent/src/cli.js team create "데모팀"
+mohani login --name=화소
+mohani team create "데모팀"
 # → "team code: ABC123" 출력 — 친구한테 공유
+```
+
+`npm link` 안 했다면 `agent/` 디렉토리에서 직접 실행:
+```bash
+cd agent
+node src/cli.js login --name=화소
+node src/cli.js team create "데모팀"
 ```
 
 **옵션 B — 글로벌 설치 (실사용 모드)**
