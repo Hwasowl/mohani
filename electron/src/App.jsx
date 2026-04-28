@@ -11,6 +11,7 @@ import {
   setAgentPrivacy,
   setBackendUrl,
   getBackendUrl,
+  updateMyDisplayName,
 } from './api.js';
 import { createTeamClient } from './stomp.js';
 
@@ -61,6 +62,7 @@ export default function App() {
   const [activity, setActivity] = useState({});
   const [agentState, setAgentState] = useState(null);
   const [error, setError] = useState(null);
+  const [dialog, setDialog] = useState(null); // 'rename' | 'team' | null
 
   const deviceId = useDeviceId();
 
@@ -144,6 +146,13 @@ export default function App() {
     <Shell
       me={me}
       team={activeTeam}
+      teams={teams}
+      onSelectTeam={(t) => {
+        if (t.id === activeTeam?.id) return;
+        setActiveTeam(t); setActivity({}); setFeed([]); setMembers([]);
+      }}
+      onAddTeam={() => setDialog('team')}
+      onRename={() => setDialog('rename')}
       agent={agentState}
       onPrivacyToggle={async () => {
         const next = !agentState?.state?.isPrivate;
@@ -160,16 +169,46 @@ export default function App() {
         <FriendGrid members={members} activity={activity} myUserId={me.userId} />
         <FeedPanel feed={feed} />
       </main>
+
+      {dialog === 'rename' && (
+        <RenameDialog
+          token={me.token}
+          current={me.displayName}
+          onClose={() => setDialog(null)}
+          onSaved={(newName) => {
+            const next = { ...me, displayName: newName };
+            session.save(next);
+            setMe(next);
+            setDialog(null);
+          }}
+        />
+      )}
+      {dialog === 'team' && (
+        <TeamDialog
+          token={me.token}
+          onClose={() => setDialog(null)}
+          onTeamReady={(t) => {
+            setTeams((prev) => prev.some((x) => x.id === t.id) ? prev : [...prev, t]);
+            setActiveTeam(t);
+            setActivity({}); setFeed([]); setMembers([]);
+            setDialog(null);
+          }}
+        />
+      )}
     </Shell>
   );
 }
 
-function Shell({ children, me, team, agent, onPrivacyToggle, onLogout }) {
+function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onRename, agent, onPrivacyToggle, onLogout }) {
   return (
     <div className="app">
       <Header
         me={me}
         team={team}
+        teams={teams}
+        onSelectTeam={onSelectTeam}
+        onAddTeam={onAddTeam}
+        onRename={onRename}
         agent={agent}
         onPrivacyToggle={onPrivacyToggle}
         onLogout={onLogout}
@@ -179,19 +218,25 @@ function Shell({ children, me, team, agent, onPrivacyToggle, onLogout }) {
   );
 }
 
-function Header({ me, team, agent, onPrivacyToggle, onLogout }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
-  const isPrivate = agent?.state?.isPrivate;
-
+function usePopover() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!open) return;
     const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [menuOpen]);
+  }, [open]);
+  return { open, setOpen, ref };
+}
+
+function Header({ me, team, teams, onSelectTeam, onAddTeam, onRename, agent, onPrivacyToggle, onLogout }) {
+  const userMenu = usePopover();
+  const teamMenu = usePopover();
+  const isPrivate = agent?.state?.isPrivate;
+  const teamList = teams ?? [];
 
   return (
     <header className="header">
@@ -199,25 +244,54 @@ function Header({ me, team, agent, onPrivacyToggle, onLogout }) {
         <span className="brand-dot" />
         <span className="brand-name">모하니</span>
         {team && (
-          <span className="team-pill">
-            <span className="team-name">{team.name}</span>
-            <span className="team-code">{team.teamCode}</span>
-          </span>
+          <div className="team-pill-wrap" ref={teamMenu.ref}>
+            <button className="team-pill" onClick={() => teamMenu.setOpen((v) => !v)}>
+              <span className="team-name">{team.name}</span>
+              <span className="team-code">{team.teamCode}</span>
+              <span className="caret">▾</span>
+            </button>
+            {teamMenu.open && (
+              <div className="menu team-menu">
+                <div className="menu-section">내 팀</div>
+                {teamList.map((t) => (
+                  <button
+                    key={t.id}
+                    className={`menu-item team-item ${t.id === team.id ? 'selected' : ''}`}
+                    onClick={() => { onSelectTeam?.(t); teamMenu.setOpen(false); }}
+                  >
+                    <span className="team-item-name">{t.name}</span>
+                    <span className="team-item-code">{t.teamCode}</span>
+                  </button>
+                ))}
+                <div className="menu-divider" />
+                {onAddTeam && (
+                  <button className="menu-item" onClick={() => { onAddTeam(); teamMenu.setOpen(false); }}>
+                    + 팀 만들기 / 가입하기
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
         {isPrivate && <span className="status-chip private">비공개 모드</span>}
       </div>
       <div className="grow" />
       {me && (
-        <div className="header-actions" ref={menuRef}>
-          <button className="me-button" onClick={() => setMenuOpen((v) => !v)}>
+        <div className="header-actions" ref={userMenu.ref}>
+          <button className="me-button" onClick={() => userMenu.setOpen((v) => !v)}>
             <Avatar name={me.displayName} seed={me.userId} size={28} />
             <span className="me-name">{me.displayName}</span>
             <span className="caret">▾</span>
           </button>
-          {menuOpen && (
+          {userMenu.open && (
             <div className="menu">
+              {onRename && (
+                <button className="menu-item" onClick={() => { onRename(); userMenu.setOpen(false); }}>
+                  닉네임 변경
+                </button>
+              )}
               {onPrivacyToggle && (
-                <button className="menu-item" onClick={() => { onPrivacyToggle(); setMenuOpen(false); }}>
+                <button className="menu-item" onClick={() => { onPrivacyToggle(); userMenu.setOpen(false); }}>
                   {isPrivate ? '비공개 해제' : '비공개로 전환'}
                 </button>
               )}
@@ -225,7 +299,7 @@ function Header({ me, team, agent, onPrivacyToggle, onLogout }) {
                 새로고침
               </button>
               {onLogout && (
-                <button className="menu-item danger" onClick={() => { onLogout(); setMenuOpen(false); }}>
+                <button className="menu-item danger" onClick={() => { onLogout(); userMenu.setOpen(false); }}>
                   로그아웃
                 </button>
               )}
@@ -234,6 +308,115 @@ function Header({ me, team, agent, onPrivacyToggle, onLogout }) {
         </div>
       )}
     </header>
+  );
+}
+
+function Modal({ children, onClose, title }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>{title}</h2>
+          <button className="modal-close" onClick={onClose} aria-label="닫기">×</button>
+        </div>
+        <div className="modal-body">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function RenameDialog({ token, current, onClose, onSaved }) {
+  const [name, setName] = useState(current ?? '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  return (
+    <Modal title="닉네임 변경" onClose={onClose}>
+      <label>새 닉네임</label>
+      <input
+        autoFocus
+        value={name}
+        maxLength={64}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') document.getElementById('rename-save')?.click(); }}
+      />
+      <div className="actions">
+        <button className="btn secondary" onClick={onClose}>취소</button>
+        <button
+          id="rename-save"
+          className="btn primary"
+          disabled={busy || !name.trim() || name.trim() === current}
+          onClick={async () => {
+            setBusy(true); setErr(null);
+            try {
+              const r = await updateMyDisplayName(token, name.trim());
+              onSaved(r.displayName);
+            } catch (e) { setErr(e.message); } finally { setBusy(false); }
+          }}
+        >{busy ? '저장 중...' : '저장'}</button>
+      </div>
+      {err && <div className="error">{err}</div>}
+    </Modal>
+  );
+}
+
+function TeamDialog({ token, onClose, onTeamReady }) {
+  const [tab, setTab] = useState('join');
+  const [teamName, setTeamName] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  return (
+    <Modal title="팀 추가" onClose={onClose}>
+      <div className="tabs">
+        <button className={`tab ${tab === 'join' ? 'active' : ''}`} onClick={() => setTab('join')}>코드로 가입</button>
+        <button className={`tab ${tab === 'create' ? 'active' : ''}`} onClick={() => setTab('create')}>새 팀 만들기</button>
+      </div>
+      {tab === 'join' ? (
+        <>
+          <label>팀 코드</label>
+          <input
+            className="code-input"
+            autoFocus
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            placeholder="ABC123"
+            maxLength={6}
+          />
+          <div className="actions">
+            <button className="btn secondary" onClick={onClose}>취소</button>
+            <button className="btn primary" disabled={busy || code.length !== 6} onClick={async () => {
+              setBusy(true); setErr(null);
+              try { onTeamReady(await joinTeam(token, code)); }
+              catch (e) { setErr(e.message); } finally { setBusy(false); }
+            }}>{busy ? '...' : '가입'}</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <label>팀 이름</label>
+          <input
+            autoFocus
+            value={teamName}
+            onChange={(e) => setTeamName(e.target.value)}
+            placeholder="우리 사이드프로젝트"
+          />
+          <div className="actions">
+            <button className="btn secondary" onClick={onClose}>취소</button>
+            <button className="btn primary" disabled={busy || !teamName.trim()} onClick={async () => {
+              setBusy(true); setErr(null);
+              try { onTeamReady(await createTeam(token, teamName.trim())); }
+              catch (e) { setErr(e.message); } finally { setBusy(false); }
+            }}>{busy ? '...' : '만들기'}</button>
+          </div>
+        </>
+      )}
+      {err && <div className="error">{err}</div>}
+    </Modal>
   );
 }
 

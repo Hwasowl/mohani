@@ -55,4 +55,15 @@ public class User {
             .createdAt(OffsetDateTime.now())
             .build();
     }
+
+    public void rename(String newDisplayName) {
+        if (newDisplayName == null || newDisplayName.isBlank()) {
+            throw new IllegalArgumentException("displayName must not be blank");
+        }
+        String trimmed = newDisplayName.trim();
+        if (trimmed.length() > 64) {
+            throw new IllegalArgumentException("displayName too long (max 64)");
+        }
+        this.displayName = trimmed;
+    }
 }

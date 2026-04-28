@@ -81,6 +81,32 @@ class AuthServiceTest {
             .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void updateDisplayName_persistsTrimmedName() throws Exception {
+        User existing = withId(User.newAnonymous("dev-9", "옛이름"), 7L);
+        when(users.findById(7L)).thenReturn(Optional.of(existing));
+
+        String result = service.updateDisplayName(7L, "  화소  ");
+
+        assertThat(result).isEqualTo("화소");
+        assertThat(existing.getDisplayName()).isEqualTo("화소");
+    }
+
+    @Test
+    void updateDisplayName_throwsWhenUserMissing() {
+        when(users.findById(404L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.updateDisplayName(404L, "x"))
+            .isInstanceOf(AuthService.UserNotFoundException.class);
+    }
+
+    @Test
+    void updateDisplayName_rejectsBlank() throws Exception {
+        User existing = withId(User.newAnonymous("dev-10", "옛이름"), 8L);
+        when(users.findById(8L)).thenReturn(Optional.of(existing));
+        assertThatThrownBy(() -> service.updateDisplayName(8L, "  "))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
     private static User withId(User u, long id) throws Exception {
         Field f = User.class.getDeclaredField("id");
         f.setAccessible(true);

@@ -29,6 +29,18 @@ public class AuthService {
         return new AnonymousLoginResult(user.getId(), user.getDisplayName(), token, jwt.getTtlSeconds());
     }
 
+    @Transactional
+    public String updateDisplayName(long userId, String newDisplayName) {
+        User user = users.findById(userId)
+            .orElseThrow(() -> new UserNotFoundException("user not found: " + userId));
+        user.rename(newDisplayName);
+        return user.getDisplayName();
+    }
+
     public record AnonymousLoginResult(long userId, String displayName, String token, long ttlSeconds) {
+    }
+
+    public static class UserNotFoundException extends RuntimeException {
+        public UserNotFoundException(String msg) { super(msg); }
     }
 }

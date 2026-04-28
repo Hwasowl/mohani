@@ -1,6 +1,7 @@
 package com.mohani.domain.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -64,6 +65,66 @@ class AuthControllerIT {
             .andExpect(status().isOk()).andReturn());
 
         assertThat(secondId).isEqualTo(firstId);
+    }
+
+    @Test
+    void updateDisplayName_changesNameAndPersistsAcrossLogin() throws Exception {
+        MvcResult login = mvc.perform(post("/api/v1/auth/anonymous")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"deviceId":"dev-rename-1","displayName":"옛이름"}
+                    """))
+            .andExpect(status().isOk()).andReturn();
+        JsonNode loginJson = om.readTree(login.getResponse().getContentAsString());
+        String token = loginJson.get("token").asText();
+        long userId = loginJson.get("userId").asLong();
+
+        mvc.perform(patch("/api/v1/auth/me")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"displayName":"새이름"}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.userId").value(userId))
+            .andExpect(jsonPath("$.displayName").value("새이름"));
+
+        mvc.perform(post("/api/v1/auth/anonymous")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"deviceId":"dev-rename-1","displayName":"무시됨"}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.displayName").value("새이름"));
+    }
+
+    @Test
+    void updateDisplayName_requiresAuth() throws Exception {
+        mvc.perform(patch("/api/v1/auth/me")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"displayName":"x"}
+                    """))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void updateDisplayName_rejectsBlank() throws Exception {
+        MvcResult login = mvc.perform(post("/api/v1/auth/anonymous")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"deviceId":"dev-rename-2","displayName":"이름"}
+                    """))
+            .andExpect(status().isOk()).andReturn();
+        String token = om.readTree(login.getResponse().getContentAsString()).get("token").asText();
+
+        mvc.perform(patch("/api/v1/auth/me")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"displayName":""}
+                    """))
+            .andExpect(status().isBadRequest());
     }
 
     private long userIdFrom(MvcResult res) throws Exception {

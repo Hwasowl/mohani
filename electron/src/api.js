@@ -27,13 +27,17 @@ export function setBackendUrl(url) {
 }
 
 async function postJson(url, body, token) {
+  return jsonRequest('POST', url, body, token);
+}
+
+async function jsonRequest(method, url, body, token) {
   const res = await fetch(url, {
-    method: 'POST',
+    method,
     headers: {
       'content-type': 'application/json',
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify(body),
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -55,6 +59,9 @@ async function getJson(url, token) {
 
 export async function loginAnonymous(deviceId, displayName) {
   return postJson(`${getBackendUrl()}/api/v1/auth/anonymous`, { deviceId, displayName });
+}
+export async function updateMyDisplayName(token, displayName) {
+  return jsonRequest('PATCH', `${getBackendUrl()}/api/v1/auth/me`, { displayName }, token);
 }
 export async function createTeam(token, name) {
   return postJson(`${getBackendUrl()}/api/v1/teams`, { name }, token);
