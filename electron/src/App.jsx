@@ -72,6 +72,19 @@ export default function App() {
   const feed = activeTeamCode ? (feedByTeam[activeTeamCode] ?? []) : [];
   const activity = activeTeamCode ? (activityByTeam[activeTeamCode] ?? {}) : {};
 
+  // 백엔드 토큰이 만료/무효(예: docker reset으로 user 사라짐) → 자동으로 세션 초기화
+  function handleApiError(e) {
+    if (e?.status === 401) {
+      session.clear();
+      setMe(null); setTeams([]); setActiveTeam(null);
+      setFeedByTeam({}); setActivityByTeam({}); setMembers([]);
+      setError('세션이 만료됐어요. 다시 시작해주세요.');
+      return true;
+    }
+    setError(e.message);
+    return false;
+  }
+
   useEffect(() => {
     if (!me) return;
     (async () => {
@@ -79,7 +92,7 @@ export default function App() {
         const ts = await listMyTeams(me.token);
         setTeams(ts);
         if (ts.length > 0 && !activeTeam) setActiveTeam(ts[0]);
-      } catch (e) { setError(e.message); }
+      } catch (e) { handleApiError(e); }
     })();
   }, [me]);
 
@@ -89,7 +102,7 @@ export default function App() {
       try {
         const ms = await listTeamMembers(me.token, activeTeam.id);
         setMembers(ms);
-      } catch (e) { setError(e.message); }
+      } catch (e) { handleApiError(e); }
     })();
   }, [me, activeTeam]);
 
@@ -162,7 +175,8 @@ export default function App() {
         <TeamSetup
           token={me.token}
           onTeamReady={(t) => { setTeams([t]); setActiveTeam(t); }}
-          setError={setError} error={error}
+          onError={handleApiError}
+          error={error}
         />
       </Shell>
     );
@@ -539,7 +553,7 @@ function Login({ deviceId, onLoggedIn, setError, error }) {
   );
 }
 
-function TeamSetup({ token, onTeamReady, setError, error }) {
+function TeamSetup({ token, onTeamReady, onError, error }) {
   const [tab, setTab] = useState('create');
   const [teamName, setTeamName] = useState('');
   const [code, setCode] = useState('');
@@ -566,9 +580,9 @@ function TeamSetup({ token, onTeamReady, setError, error }) {
             />
             <div className="actions">
               <button className="btn primary block" disabled={!teamName || busy} onClick={async () => {
-                setBusy(true); setError(null);
+                setBusy(true);
                 try { onTeamReady(await createTeam(token, teamName)); }
-                catch (e) { setError(e.message); } finally { setBusy(false); }
+                catch (e) { onError(e); } finally { setBusy(false); }
               }}>만들기</button>
             </div>
           </>
@@ -584,9 +598,9 @@ function TeamSetup({ token, onTeamReady, setError, error }) {
             />
             <div className="actions">
               <button className="btn primary block" disabled={code.length !== 6 || busy} onClick={async () => {
-                setBusy(true); setError(null);
+                setBusy(true);
                 try { onTeamReady(await joinTeam(token, code)); }
-                catch (e) { setError(e.message); } finally { setBusy(false); }
+                catch (e) { onError(e); } finally { setBusy(false); }
               }}>가입</button>
             </div>
           </>

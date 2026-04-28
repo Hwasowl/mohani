@@ -41,7 +41,9 @@ async function jsonRequest(method, url, body, token) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
+    const err = new Error(`HTTP ${res.status}: ${text || res.statusText}`);
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }
@@ -52,7 +54,9 @@ async function getJson(url, token) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
+    const err = new Error(`HTTP ${res.status}: ${text || res.statusText}`);
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }
