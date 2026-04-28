@@ -8,7 +8,43 @@
     "dev:vite": "vite",
     "dev:electron": "wait-on tcp:5173 && electron .",
     "dev": "concurrently -k -n vite,electron -c blue,magenta \"npm:dev:vite\" \"npm:dev:electron\"",
-    "build": "vite build"
+    "build": "vite build",
+    "dist": "vite build && electron-builder --publish=never",
+    "dist:win": "vite build && electron-builder --win --publish=never",
+    "dist:mac": "vite build && electron-builder --mac --publish=never"
+  },
+  "build": {
+    "appId": "com.mohani.app",
+    "productName": "Mohani",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "artifactName": "Mohani-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] }
+      ],
+      "category": "public.app-category.developer-tools",
+      "artifactName": "Mohani-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Mohani"
+    },
+    "publish": null
   },
   "dependencies": {
     "@stomp/stompjs": "^7.0.0",
@@ -19,6 +55,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
     "vite": "^6.0.7",
     "wait-on": "^8.0.1"
   }

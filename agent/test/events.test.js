@@ -35,17 +35,22 @@ describe('normalizeEvent — UserPromptSubmit', () => {
     expect(out.normalized.maskHits).toContain('EMAIL');
   });
 
-  it('estimates totalTokens from raw prompt length (char/4 heuristic)', () => {
+  it('does NOT include totalTokens on UserPromptSubmit (deferred to Stop event)', () => {
+    // 토큰은 transcript 기반으로 Stop 이벤트에서 정확히 측정 — UserPromptSubmit에선 제외
     const out = normalizeEvent({
       event: 'UserPromptSubmit',
-      prompt: 'a'.repeat(400), // 400 chars → 100 tokens 추정
+      prompt: 'a'.repeat(400),
     });
-    expect(out.normalized.totalTokens).toBe(100);
+    expect(out.normalized.totalTokens).toBeUndefined();
   });
 
-  it('totalTokens is at least 1 even for short prompts', () => {
-    const out = normalizeEvent({ event: 'UserPromptSubmit', prompt: 'hi' });
-    expect(out.normalized.totalTokens).toBe(1);
+  it('passes through transcriptPath for daemon to read on Stop', () => {
+    const out = normalizeEvent({
+      event: 'UserPromptSubmit',
+      prompt: 'hello',
+      transcript_path: '/tmp/conv.jsonl',
+    });
+    expect(out.normalized.transcriptPath).toBe('/tmp/conv.jsonl');
   });
 });
 

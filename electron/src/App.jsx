@@ -66,6 +66,11 @@ export default function App() {
   const [agentState, setAgentState] = useState(null);
   const [error, setError] = useState(null);
   const [dialog, setDialog] = useState(null); // 'rename' | 'team' | 'leave' | null
+  // 피드 패널 열림/닫힘 + 너비 — 사용자 선호 영구 저장
+  const [feedOpen, setFeedOpen] = useState(() => localStorage.getItem('mohani.feedOpen') !== '0');
+  const [feedWidth, setFeedWidth] = useState(() => Number(localStorage.getItem('mohani.feedWidth')) || 320);
+  useEffect(() => { localStorage.setItem('mohani.feedOpen', feedOpen ? '1' : '0'); }, [feedOpen]);
+  useEffect(() => { localStorage.setItem('mohani.feedWidth', String(feedWidth)); }, [feedWidth]);
 
   const deviceId = useDeviceId();
   const activeTeamCode = activeTeam?.teamCode;
@@ -209,9 +214,21 @@ export default function App() {
         setActivityByTeam({}); setFeedByTeam({});
       }}
     >
-      <main className="content">
+      <main className="content" style={{ gridTemplateColumns: feedOpen ? `minmax(0, 1fr) ${feedWidth}px` : '1fr' }}>
         <FriendGrid members={members} activity={activity} myUserId={me.userId} />
-        <FeedPanel feed={feed} />
+        {feedOpen && (
+          <FeedPanel
+            feed={feed}
+            width={feedWidth}
+            onResize={setFeedWidth}
+            onClose={() => setFeedOpen(false)}
+          />
+        )}
+        {!feedOpen && (
+          <button className="feed-reopen" onClick={() => setFeedOpen(true)} title="최근 활동 열기">
+            ◀
+          </button>
+        )}
       </main>
 
       {dialog === 'rename' && (
@@ -668,10 +685,45 @@ function FriendGrid({ members, activity, myUserId }) {
   );
 }
 
-function FeedPanel({ feed }) {
+function FeedPanel({ feed, width, onResize, onClose }) {
+  // 좌측 핸들 드래그로 폭 조절. 220 ~ 560px 범위.
+  const dragRef = useRef(null);
+  useEffect(() => {
+    const handle = dragRef.current;
+    if (!handle) return;
+    let startX = 0;
+    let startW = width;
+    const onMove = (e) => {
+      const dx = startX - e.clientX; // 왼쪽으로 드래그하면 폭 증가
+      const next = Math.max(220, Math.min(560, startW + dx));
+      onResize(next);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    const onDown = (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = width;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    };
+    handle.addEventListener('mousedown', onDown);
+    return () => handle.removeEventListener('mousedown', onDown);
+  }, [width, onResize]);
+
   return (
     <aside className="feed">
-      <h3 className="feed-title">최근에 뭐 했나</h3>
+      <div className="feed-resize-handle" ref={dragRef} title="드래그로 폭 조절" />
+      <div className="feed-head-row">
+        <h3 className="feed-title">최근에 뭐 했나</h3>
+        <button className="feed-close" onClick={onClose} title="닫기" aria-label="피드 닫기">×</button>
+      </div>
       <div className="feed-scroll">
         {feed.length === 0 && (
           <div className="feed-empty">최근 작업이 여기 쌓여요.<br />Claude Code에서 프롬프트를 입력해보세요.</div>

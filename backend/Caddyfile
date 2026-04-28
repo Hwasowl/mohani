@@ -1,0 +1,4 @@
+# Caddy — 자동 HTTPS (Let's Encrypt) + WebSocket 프록시
+{$MOHANI_DOMAIN} {
+    reverse_proxy app:8080
+}

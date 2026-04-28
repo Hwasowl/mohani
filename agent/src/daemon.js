@@ -6,6 +6,7 @@ import express from 'express';
 import { pathToFileURL } from 'node:url';
 import { load, save } from './config-store.js';
 import { normalizeEvent } from './events.js';
+import { readLastAssistantUsage } from './transcript.js';
 import { createTransport } from './transport.js';
 
 const PORT_CANDIDATES = [24555, 24556, 24557];
@@ -78,7 +79,7 @@ export function createApp(state = {}) {
     }
 
     // 마지막 이벤트로부터 경과 시간(초)을 측정해 durationDeltaSec로 보낸다.
-    // Claude Code의 hook payload는 토큰/시간을 안 주므로 데몬이 직접 추정한다.
+    // Claude Code의 hook payload는 시간을 안 주므로 데몬이 직접 추정한다.
     const now = Date.now();
     const last = state.lastEventAt ?? 0;
     const gapSec = last ? Math.round((now - last) / 1000) : 0;
@@ -86,6 +87,22 @@ export function createApp(state = {}) {
       result.normalized.durationDeltaSec = gapSec;
     }
     state.lastEventAt = now;
+
+    // Stop 이벤트: transcript JSONL을 읽어 마지막 assistant turn의 정확한 토큰을 가져와
+    // 이전 측정값과의 delta를 보낸다. char/4 추정보다 훨씬 정확.
+    if (result.normalized.event === 'Stop' && result.normalized.transcriptPath) {
+      const usage = readLastAssistantUsage(result.normalized.transcriptPath);
+      if (usage && usage.total > 0) {
+        const sessionId = result.normalized.sessionId ?? 'default';
+        state.lastTokenTotalBySession ??= {};
+        const prev = state.lastTokenTotalBySession[sessionId] ?? 0;
+        // transcript의 last assistant usage는 그 turn의 비용(누적X) — delta로 그대로 사용.
+        // 단, 같은 transcript를 두 번 읽었거나 stop이 중복 호출된 경우엔 음수 가능 → 0 컷.
+        const delta = Math.max(0, usage.total);
+        result.normalized.totalTokens = delta;
+        state.lastTokenTotalBySession[sessionId] = prev + delta;
+      }
+    }
 
     state.lastEvent = result.normalized;
     if (state.onEvent) state.onEvent(result.normalized);

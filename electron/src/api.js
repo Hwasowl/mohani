@@ -19,7 +19,12 @@ export const session = {
 };
 
 export function getBackendUrl() {
-  return localStorage.getItem('mohani.backendUrl') || 'http://localhost:8080';
+  // 빌드 시 baked-in 기본값 (배포용) > 사용자 설정 > localhost (dev)
+  const stored = localStorage.getItem('mohani.backendUrl');
+  if (stored) return stored;
+  // VITE_MOHANI_BACKEND_URL 환경변수로 패키징 — 배포 시 prod URL 자동 적용
+  const baked = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_MOHANI_BACKEND_URL) || null;
+  return baked || 'http://localhost:8080';
 }
 
 export function setBackendUrl(url) {

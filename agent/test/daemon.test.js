@@ -88,6 +88,42 @@ describe('daemon — /agent/event', () => {
     expect(seen[1].durationDeltaSec).toBeGreaterThanOrEqual(1);
     expect(seen[1].durationDeltaSec).toBeLessThanOrEqual(2);
   });
+
+  it('Stop event reads transcript file to set accurate totalTokens', async () => {
+    const { writeFileSync, mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'mohani-test-'));
+    const transcriptPath = join(dir, 'conv.jsonl');
+    writeFileSync(transcriptPath, [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'hi' } }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', usage: { input_tokens: 1500, output_tokens: 250 } },
+      }),
+    ].join('\n'));
+
+    const seen = [];
+    const app = createApp({ onEvent: (e) => seen.push(e) });
+    await request(app).post('/agent/event').send({
+      event: 'Stop',
+      session_id: 'sess-tok',
+      transcript_path: transcriptPath,
+    });
+    expect(seen[0].totalTokens).toBe(1750); // 1500 + 250
+  });
+
+  it('Stop event with no transcript file leaves totalTokens null (no double-count)', async () => {
+    const seen = [];
+    const app = createApp({ onEvent: (e) => seen.push(e) });
+    await request(app).post('/agent/event').send({
+      event: 'Stop',
+      session_id: 'sess-x',
+      transcript_path: '/non/existent/path.jsonl',
+    });
+    // 파일을 못 읽으면 raw.totalTokens fallback (null) — 토큰 누적 안 됨
+    expect(seen[0].totalTokens).toBeNull();
+  });
 });
 
 describe('daemon — /state/session (Electron 토큰 동기화)', () => {

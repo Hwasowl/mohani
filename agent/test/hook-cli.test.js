@@ -19,8 +19,14 @@ describe('hook-cli buildPayload', () => {
       prompt: 'hello',
       toolName: 'Read',
       totalTokens: 42,
+      transcriptPath: null,
       cliKind: 'claude',
     });
+  });
+
+  it('captures transcript_path for daemon to read accurate token usage', () => {
+    const raw = JSON.stringify({ session_id: 's', transcript_path: '/var/log/conv.jsonl' });
+    expect(buildPayload('Stop', raw).transcriptPath).toBe('/var/log/conv.jsonl');
   });
 
   it('handles empty stdin', () => {

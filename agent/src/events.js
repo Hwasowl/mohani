@@ -48,6 +48,9 @@ export function normalizeEvent(raw, opts = {}) {
     occurredAt: new Date().toISOString(),
   };
 
+  // transcriptPath는 Stop 이벤트 처리(daemon)에서 정확한 토큰을 위해 사용된다 — 항상 통과
+  base.transcriptPath = raw.transcriptPath ?? raw.transcript_path ?? null;
+
   if (event === 'UserPromptSubmit') {
     const rawPrompt = raw.prompt ?? '';
     const { masked, hits } = maskFirstLine(rawPrompt);
@@ -55,12 +58,10 @@ export function normalizeEvent(raw, opts = {}) {
     if (suspicious.length > 0) {
       return { dropped: true, reason: 'suspicious_after_mask', suspicious };
     }
-    // Claude Code hook payload에 token 메타가 없어서 char/4 휴리스틱으로 추정한다.
-    // 실측이 들어오면(예: API metadata 노출) 우선시.
-    const estTokens = Math.max(1, Math.ceil(rawPrompt.length / 4));
+    // 토큰은 Stop 이벤트에서 transcript 읽어 정확히 측정 — 여기선 안 셈 (이중 카운트 방지)
     return {
       dropped: false,
-      normalized: { ...base, promptFirstLine: masked, maskHits: hits, totalTokens: estTokens },
+      normalized: { ...base, promptFirstLine: masked, maskHits: hits },
     };
   }
 
@@ -72,9 +73,12 @@ export function normalizeEvent(raw, opts = {}) {
   }
 
   if (event === 'Stop') {
+    // raw.totalTokens가 직접 들어오면 우선시 (테스트/외부 통합용). 실제 사용 시엔
+    // daemon이 transcriptPath 기반으로 정확한 값을 채워넣는다.
+    const direct = raw.totalTokens != null ? Number(raw.totalTokens) : null;
     return {
       dropped: false,
-      normalized: { ...base, totalTokens: Number(raw.totalTokens ?? 0) },
+      normalized: { ...base, totalTokens: direct },
     };
   }
 

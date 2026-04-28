@@ -71,6 +71,7 @@ export function buildPayload(event, raw) {
     prompt: parsed.prompt ?? null,
     toolName: parsed.tool_name ?? parsed.toolName ?? null,
     totalTokens: parsed.total_tokens ?? parsed.totalTokens ?? null,
+    transcriptPath: parsed.transcript_path ?? parsed.transcriptPath ?? null,
     cliKind: 'claude',
   };
 }
