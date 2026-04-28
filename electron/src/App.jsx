@@ -56,6 +56,14 @@ function Avatar({ name, seed, size = 40, ring }) {
 }
 
 export default function App() {
+  // URL hash로 메인/위젯 모드 분기
+  if (typeof window !== 'undefined' && window.location.hash === '#widget') {
+    return <WidgetApp />;
+  }
+  return <MainApp />;
+}
+
+function MainApp() {
   const [me, setMe] = useState(session.load());
   const [teams, setTeams] = useState([]);
   const [activeTeam, setActiveTeam] = useState(null);
@@ -154,6 +162,13 @@ export default function App() {
     if (!me?.token) return;
     pushAgentSession({ token: me.token, userId: me.userId, displayName: me.displayName });
   }, [me?.token, me?.userId, me?.displayName]);
+
+  // 활성 팀을 localStorage에 저장 — 위젯 창이 같은 팀을 보게
+  useEffect(() => {
+    if (activeTeam?.teamCode) {
+      localStorage.setItem('mohani.activeTeamCode', activeTeam.teamCode);
+    }
+  }, [activeTeam?.teamCode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -378,6 +393,11 @@ function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRenam
               {onPrivacyToggle && (
                 <button className="menu-item" onClick={() => { onPrivacyToggle(); userMenu.setOpen(false); }}>
                   {isPrivate ? '비공개 해제' : '비공개로 전환'}
+                </button>
+              )}
+              {typeof window !== 'undefined' && window.mohaniIpc?.toggleWidget && (
+                <button className="menu-item" onClick={() => { window.mohaniIpc.toggleWidget(); userMenu.setOpen(false); }}>
+                  미니 위젯 보기/숨기기
                 </button>
               )}
               <button className="menu-item" onClick={() => { window.location.reload(); }}>
@@ -756,4 +776,91 @@ function relativeTime(ts) {
   const hr = Math.round(min / 60);
   if (hr < 24) return `${hr}시간 전`;
   return `${Math.round(hr / 24)}일 전`;
+}
+
+// ─── Mini Widget ────────────────────────────────────────────────
+// 항상 위에 떠있는 작은 창. 메인 창과 데이터(localStorage·STOMP) 공유.
+function WidgetApp() {
+  const [me] = useState(session.load());
+  const [team, setTeam] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [activity, setActivity] = useState({});
+
+  useEffect(() => {
+    if (!me) return;
+    let cancelled = false;
+    listMyTeams(me.token).then((ts) => {
+      if (cancelled) return;
+      const saved = localStorage.getItem('mohani.activeTeamCode');
+      const t = ts.find((x) => x.teamCode === saved) ?? ts[0] ?? null;
+      setTeam(t);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [me]);
+
+  useEffect(() => {
+    if (!me || !team) return;
+    listTeamMembers(me.token, team.id).then(setMembers).catch(() => {});
+    const dispose = createTeamClient({
+      token: me.token,
+      teamCode: team.teamCode,
+      onMessage: (msg) => {
+        setActivity((prev) => ({
+          ...prev,
+          [msg.userId]: {
+            promptFirstLine: msg.promptFirstLine ?? prev[msg.userId]?.promptFirstLine ?? null,
+            todayTokens: msg.todayTokens,
+            todayDurationSec: msg.todayDurationSec,
+            lastSeen: Date.now(),
+            displayName: msg.displayName,
+          },
+        }));
+      },
+    });
+    return dispose;
+  }, [me, team]);
+
+  return (
+    <div className="widget">
+      <div className="widget-drag" />
+      <div className="widget-head">
+        <span className="widget-brand">
+          <span className="widget-dot" />
+          {team?.name ?? '모하니'}
+        </span>
+        <button
+          className="widget-btn"
+          title="메인 창 열기"
+          onClick={() => window.mohaniIpc?.openMainWindow?.()}
+        >⤢</button>
+        <button
+          className="widget-btn"
+          title="위젯 닫기"
+          onClick={() => window.mohaniIpc?.toggleWidget?.()}
+        >×</button>
+      </div>
+      <div className="widget-body">
+        {!me && <div className="widget-empty">먼저 메인 창에서 가입하세요</div>}
+        {me && !team && <div className="widget-empty">팀이 없어요. 메인 창에서 만들거나 가입.</div>}
+        {me && team && members.length === 0 && (
+          <div className="widget-empty">팀원 로딩 중...</div>
+        )}
+        {me && team && members.map((m) => {
+          const a = activity[m.userId];
+          const active = a && Date.now() - a.lastSeen < 90_000;
+          return (
+            <div key={m.userId} className={`widget-row ${active ? 'on' : ''}`}>
+              <Avatar name={m.displayName} seed={m.userId} size={22} ring={active} />
+              <div className="widget-text">
+                <div className="widget-name">{m.displayName}</div>
+                <div className="widget-prompt">
+                  {a?.promptFirstLine || (active ? '...' : '쉬는 중')}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

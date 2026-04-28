@@ -1,12 +1,29 @@
 // Electron main process — Vite dev URL 또는 빌드된 dist를 로드.
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('node:path');
 
 const DEV_URL = process.env.MOHANI_DEV_URL || 'http://localhost:5173';
+const PRELOAD = path.join(__dirname, 'preload.cjs');
 
-function createWindow() {
+let mainWindow = null;
+let widgetWindow = null;
+
+function loadInto(win, hash) {
+  if (app.isPackaged) {
+    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), hash ? { hash } : undefined);
+  } else {
+    win.loadURL(hash ? `${DEV_URL}#${hash}` : DEV_URL);
+  }
+}
+
+function createMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    return mainWindow;
+  }
   const isMac = process.platform === 'darwin';
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1080,
     height: 720,
     minWidth: 760,
@@ -21,21 +38,68 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: PRELOAD,
     },
   });
-
-  if (app.isPackaged) {
-    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
-  } else {
-    win.loadURL(DEV_URL);
-    win.webContents.openDevTools({ mode: 'detach' });
+  loadInto(mainWindow);
+  if (!app.isPackaged) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
+  mainWindow.on('closed', () => { mainWindow = null; });
+  return mainWindow;
 }
 
+function createWidgetWindow() {
+  if (widgetWindow && !widgetWindow.isDestroyed()) {
+    widgetWindow.show();
+    widgetWindow.focus();
+    return widgetWindow;
+  }
+  const { workArea } = screen.getPrimaryDisplay();
+  const w = 280;
+  const h = 320;
+  widgetWindow = new BrowserWindow({
+    width: w,
+    height: h,
+    x: workArea.x + workArea.width - w - 20,
+    y: workArea.y + 60,
+    frame: false,
+    resizable: true,
+    minWidth: 220,
+    minHeight: 180,
+    maxWidth: 480,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: '#0b1220',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: PRELOAD,
+    },
+  });
+  loadInto(widgetWindow, 'widget');
+  widgetWindow.on('closed', () => { widgetWindow = null; });
+  return widgetWindow;
+}
+
+ipcMain.handle('mohani:toggle-widget', () => {
+  if (widgetWindow && !widgetWindow.isDestroyed()) {
+    widgetWindow.close();
+    return { open: false };
+  }
+  createWidgetWindow();
+  return { open: true };
+});
+
+ipcMain.handle('mohani:open-main', () => {
+  createMainWindow();
+  return { ok: true };
+});
+
 app.whenReady().then(() => {
-  createWindow();
+  createMainWindow();
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
 });
 

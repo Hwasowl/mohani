@@ -46,3 +46,6 @@ release/
 # Mohani 패키지 빌드 산출물
 agent/ui/
 agent/*.tgz
+
+# Fly.io (안 쓸 예정)
+backend/fly.toml
