@@ -3,13 +3,13 @@ CREATE TABLE users (
     device_id VARCHAR(64) UNIQUE,
     email VARCHAR(255) UNIQUE,
     display_name VARCHAR(64) NOT NULL,
-    avatar_url TEXT,
+    avatar_url VARCHAR(512),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE teams (
     id BIGSERIAL PRIMARY KEY,
-    team_code CHAR(6) UNIQUE NOT NULL,
+    team_code VARCHAR(6) UNIQUE NOT NULL,
     name VARCHAR(64) NOT NULL,
     owner_id BIGINT NOT NULL REFERENCES users(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()

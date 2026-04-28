@@ -31,7 +31,7 @@ public class User {
     @Column(name = "display_name", nullable = false, length = 64)
     private String displayName;
 
-    @Column(name = "avatar_url")
+    @Column(name = "avatar_url", length = 512)
     private String avatarUrl;
 
     @Column(name = "created_at", nullable = false)
