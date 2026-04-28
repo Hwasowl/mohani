@@ -11,6 +11,14 @@ const PORT_CANDIDATES = [24555, 24556, 24557];
 
 export function createApp(state = {}) {
   const app = express();
+  // 데몬은 127.0.0.1에만 바인딩되므로 origin 제한 의미 적음 — Electron renderer/Vite/file://의 모든 호출 허용
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'content-type,authorization');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
   app.use(express.json({ limit: '256kb' }));
 
   app.get('/health', (_req, res) => {
