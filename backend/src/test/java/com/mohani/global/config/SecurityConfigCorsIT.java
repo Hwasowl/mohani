@@ -38,4 +38,15 @@ class SecurityConfigCorsIT {
                 .header("Access-Control-Request-Headers", "authorization"))
             .andExpect(status().isOk());
     }
+
+    @Test
+    void corsPreflightForPatchMe_allowsPatchMethod() throws Exception {
+        // PATCH가 setAllowedMethods에 누락되면 preflight가 403 — 회귀 방지
+        mvc.perform(options("/api/v1/auth/me")
+                .header("Origin", "http://localhost:5173")
+                .header("Access-Control-Request-Method", "PATCH")
+                .header("Access-Control-Request-Headers", "authorization,content-type"))
+            .andExpect(status().isOk())
+            .andExpect(header().exists("Access-Control-Allow-Methods"));
+    }
 }

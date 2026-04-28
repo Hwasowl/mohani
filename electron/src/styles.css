@@ -65,16 +65,24 @@ button { font-family: inherit; }
 .team-pill {
   display: inline-flex; align-items: center; gap: 8px;
   margin-left: 6px;
-  padding: 4px 10px 4px 12px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.06);
+  padding: 5px 10px 5px 12px;
+  background: rgba(124,156,255,0.1);
+  border: 1px solid rgba(124,156,255,0.22);
   border-radius: 999px;
   font-size: 12px;
   color: var(--text);
   cursor: pointer;
-  transition: background .15s;
+  transition: background .15s, border-color .15s;
 }
-.team-pill:hover { background: rgba(255,255,255,0.08); }
+.team-pill:hover {
+  background: rgba(124,156,255,0.18);
+  border-color: rgba(124,156,255,0.35);
+}
+.team-pill .caret {
+  font-size: 10px;
+  color: var(--accent);
+  margin-left: 2px;
+}
 .team-menu {
   left: 6px; right: auto;
   min-width: 240px;

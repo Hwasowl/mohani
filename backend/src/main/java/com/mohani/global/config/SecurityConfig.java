@@ -45,7 +45,7 @@ public class SecurityConfig {
         // 데모/dev: Electron renderer(localhost:5173, file://), 친구 PC 접속 등 모두 허용.
         // 운영 시 화이트리스트로 좁힐 것.
         cfg.setAllowedOriginPatterns(List.of("*"));
-        cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         cfg.setAllowedHeaders(List.of("*"));
         cfg.setExposedHeaders(List.of("Authorization"));
         cfg.setAllowCredentials(true);
