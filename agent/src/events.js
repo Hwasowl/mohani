@@ -49,12 +49,19 @@ export function normalizeEvent(raw, opts = {}) {
   };
 
   if (event === 'UserPromptSubmit') {
-    const { masked, hits } = maskFirstLine(raw.prompt ?? '');
+    const rawPrompt = raw.prompt ?? '';
+    const { masked, hits } = maskFirstLine(rawPrompt);
     const suspicious = detectSuspicious(masked);
     if (suspicious.length > 0) {
       return { dropped: true, reason: 'suspicious_after_mask', suspicious };
     }
-    return { dropped: false, normalized: { ...base, promptFirstLine: masked, maskHits: hits } };
+    // Claude Code hook payload에 token 메타가 없어서 char/4 휴리스틱으로 추정한다.
+    // 실측이 들어오면(예: API metadata 노출) 우선시.
+    const estTokens = Math.max(1, Math.ceil(rawPrompt.length / 4));
+    return {
+      dropped: false,
+      normalized: { ...base, promptFirstLine: masked, maskHits: hits, totalTokens: estTokens },
+    };
   }
 
   if (event === 'PreToolUse' || event === 'PostToolUse') {

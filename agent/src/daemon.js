@@ -9,6 +9,8 @@ import { normalizeEvent } from './events.js';
 import { createTransport } from './transport.js';
 
 const PORT_CANDIDATES = [24555, 24556, 24557];
+// hook 이벤트 사이 간격이 이 값을 넘으면 "잠수" — 시간 누적 안함 (자리 비움 시간 차단)
+const ACTIVE_GAP_CAP_SEC = 60;
 
 export function createApp(state = {}) {
   const app = express();
@@ -74,6 +76,16 @@ export function createApp(state = {}) {
     if (result.dropped) {
       return res.json({ ok: true, dropped: true, reason: result.reason });
     }
+
+    // 마지막 이벤트로부터 경과 시간(초)을 측정해 durationDeltaSec로 보낸다.
+    // Claude Code의 hook payload는 토큰/시간을 안 주므로 데몬이 직접 추정한다.
+    const now = Date.now();
+    const last = state.lastEventAt ?? 0;
+    const gapSec = last ? Math.round((now - last) / 1000) : 0;
+    if (gapSec > 0 && gapSec <= ACTIVE_GAP_CAP_SEC) {
+      result.normalized.durationDeltaSec = gapSec;
+    }
+    state.lastEventAt = now;
 
     state.lastEvent = result.normalized;
     if (state.onEvent) state.onEvent(result.normalized);

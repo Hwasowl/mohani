@@ -1,5 +1,6 @@
 package com.mohani.domain.team;
 
+import com.mohani.domain.team.TeamService.LeaveResult;
 import com.mohani.domain.team.TeamService.MemberView;
 import com.mohani.domain.team.TeamService.TeamView;
 import com.mohani.global.auth.AuthenticatedUser;
@@ -7,6 +8,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -44,6 +46,11 @@ public class TeamController {
     @GetMapping("/{teamId}/members")
     public List<MemberView> members(AuthenticatedUser user, @PathVariable Long teamId) {
         return teamService.listMembers(teamId, user.userId());
+    }
+
+    @DeleteMapping("/{teamId}/leave")
+    public LeaveResult leave(AuthenticatedUser user, @PathVariable Long teamId) {
+        return teamService.leave(teamId, user.userId());
     }
 
     @ExceptionHandler(TeamService.TeamNotFoundException.class)

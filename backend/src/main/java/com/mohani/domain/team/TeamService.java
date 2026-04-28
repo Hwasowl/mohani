@@ -45,6 +45,24 @@ public class TeamService {
         return TeamView.from(team);
     }
 
+    @Transactional
+    public LeaveResult leave(Long teamId, Long userId) {
+        Team team = teams.findById(teamId)
+            .orElseThrow(() -> new TeamNotFoundException(String.valueOf(teamId)));
+        if (!memberships.existsByIdTeamIdAndIdUserId(teamId, userId)) {
+            throw new NotATeamMemberException();
+        }
+        memberships.deleteByIdTeamIdAndIdUserId(teamId, userId);
+        long remaining = memberships.countByIdTeamId(teamId);
+        boolean teamDeleted = false;
+        if (remaining == 0) {
+            // 마지막 멤버가 나가면 팀 자체를 삭제 — 좀비 팀 방지
+            teams.deleteById(teamId);
+            teamDeleted = true;
+        }
+        return new LeaveResult(team.getTeamCode(), teamDeleted, remaining);
+    }
+
     @Transactional(readOnly = true)
     public List<MemberView> listMembers(Long teamId, Long requesterUserId) {
         if (!memberships.existsByIdTeamIdAndIdUserId(teamId, requesterUserId)) {
@@ -84,6 +102,8 @@ public class TeamService {
             return new TeamView(t.getId(), t.getTeamCode(), t.getName(), t.getOwnerId());
         }
     }
+
+    public record LeaveResult(String teamCode, boolean teamDeleted, long remainingMembers) {}
 
     public record MemberView(Long userId, String displayName, String avatarUrl) {
         public static MemberView from(User u) {

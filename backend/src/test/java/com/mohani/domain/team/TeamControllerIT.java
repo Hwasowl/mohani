@@ -1,6 +1,7 @@
 package com.mohani.domain.team;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -114,6 +115,62 @@ class TeamControllerIT {
     void unauthenticated_request_returns401() throws Exception {
         mvc.perform(get("/api/v1/teams/me"))
             .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void leave_removesMembership_butKeepsTeamWhenOthersRemain() throws Exception {
+        String code = createTeamForAlice("팀");
+        long teamId = teamIdByCode(code);
+        joinAs(bobToken, code);
+
+        mvc.perform(delete("/api/v1/teams/" + teamId + "/leave")
+                .header("Authorization", "Bearer " + bobToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.teamDeleted").value(false))
+            .andExpect(jsonPath("$.remainingMembers").value(1));
+
+        // Bob의 /me 목록에서 팀 사라짐
+        MvcResult bobMe = mvc.perform(get("/api/v1/teams/me")
+                .header("Authorization", "Bearer " + bobToken))
+            .andExpect(status().isOk()).andReturn();
+        JsonNode bobTeams = om.readTree(bobMe.getResponse().getContentAsString());
+        for (JsonNode t : bobTeams) {
+            assertThat(t.get("teamCode").asText()).isNotEqualTo(code);
+        }
+
+        // Alice는 여전히 멤버 조회 가능
+        mvc.perform(get("/api/v1/teams/" + teamId + "/members")
+                .header("Authorization", "Bearer " + aliceToken))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void leave_lastMember_deletesTeam() throws Exception {
+        String code = createTeamForAlice("팀");
+        long teamId = teamIdByCode(code);
+
+        mvc.perform(delete("/api/v1/teams/" + teamId + "/leave")
+                .header("Authorization", "Bearer " + aliceToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.teamDeleted").value(true))
+            .andExpect(jsonPath("$.remainingMembers").value(0));
+
+        // 같은 코드로 다시 join 시도 → 404 (팀이 삭제됨)
+        mvc.perform(post("/api/v1/teams/join")
+                .header("Authorization", "Bearer " + bobToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(String.format("{\"teamCode\":\"%s\"}", code)))
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void leave_byNonMember_returns403() throws Exception {
+        String code = createTeamForAlice("팀");
+        long teamId = teamIdByCode(code);
+
+        mvc.perform(delete("/api/v1/teams/" + teamId + "/leave")
+                .header("Authorization", "Bearer " + bobToken))
+            .andExpect(status().isForbidden());
     }
 
     // --- helpers -----------------------------------------------------------

@@ -34,6 +34,19 @@ describe('normalizeEvent — UserPromptSubmit', () => {
     expect(out.normalized.promptFirstLine).toContain('●●●@●●●');
     expect(out.normalized.maskHits).toContain('EMAIL');
   });
+
+  it('estimates totalTokens from raw prompt length (char/4 heuristic)', () => {
+    const out = normalizeEvent({
+      event: 'UserPromptSubmit',
+      prompt: 'a'.repeat(400), // 400 chars → 100 tokens 추정
+    });
+    expect(out.normalized.totalTokens).toBe(100);
+  });
+
+  it('totalTokens is at least 1 even for short prompts', () => {
+    const out = normalizeEvent({ event: 'UserPromptSubmit', prompt: 'hi' });
+    expect(out.normalized.totalTokens).toBe(1);
+  });
 });
 
 describe('normalizeEvent — guardrails', () => {

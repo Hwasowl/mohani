@@ -77,6 +77,17 @@ describe('daemon — /agent/event', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0].toolName).toBe('Bash');
   });
+
+  it('first event has no durationDeltaSec; subsequent events accumulate gap', async () => {
+    const seen = [];
+    const app = createApp({ onEvent: (e) => seen.push(e) });
+    await request(app).post('/agent/event').send({ event: 'UserPromptSubmit', prompt: 'a' });
+    await new Promise((r) => setTimeout(r, 1100));
+    await request(app).post('/agent/event').send({ event: 'PreToolUse', tool_name: 'Read' });
+    expect(seen[0].durationDeltaSec).toBeUndefined();
+    expect(seen[1].durationDeltaSec).toBeGreaterThanOrEqual(1);
+    expect(seen[1].durationDeltaSec).toBeLessThanOrEqual(2);
+  });
 });
 
 describe('daemon — /state/session (Electron 토큰 동기화)', () => {

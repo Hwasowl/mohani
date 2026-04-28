@@ -75,6 +75,9 @@ export async function listMyTeams(token) {
 export async function listTeamMembers(token, teamId) {
   return getJson(`${getBackendUrl()}/api/v1/teams/${teamId}/members`, token);
 }
+export async function leaveTeam(token, teamId) {
+  return jsonRequest('DELETE', `${getBackendUrl()}/api/v1/teams/${teamId}/leave`, undefined, token);
+}
 
 // 로컬 데몬 (포트 폴백)
 export async function getAgentState() {

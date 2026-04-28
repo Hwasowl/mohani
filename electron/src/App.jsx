@@ -6,6 +6,7 @@ import {
   joinTeam,
   listMyTeams,
   listTeamMembers,
+  leaveTeam,
   loginAnonymous,
   pushAgentSession,
   session,
@@ -59,13 +60,17 @@ export default function App() {
   const [teams, setTeams] = useState([]);
   const [activeTeam, setActiveTeam] = useState(null);
   const [members, setMembers] = useState([]);
-  const [feed, setFeed] = useState([]);
-  const [activity, setActivity] = useState({});
+  // 팀 전환 시 활동 히스토리가 사라지지 않도록 teamCode별로 보관
+  const [feedByTeam, setFeedByTeam] = useState({});      // { [teamCode]: TeamFeedMessage[] }
+  const [activityByTeam, setActivityByTeam] = useState({}); // { [teamCode]: { [userId]: ... } }
   const [agentState, setAgentState] = useState(null);
   const [error, setError] = useState(null);
-  const [dialog, setDialog] = useState(null); // 'rename' | 'team' | null
+  const [dialog, setDialog] = useState(null); // 'rename' | 'team' | 'leave' | null
 
   const deviceId = useDeviceId();
+  const activeTeamCode = activeTeam?.teamCode;
+  const feed = activeTeamCode ? (feedByTeam[activeTeamCode] ?? []) : [];
+  const activity = activeTeamCode ? (activityByTeam[activeTeamCode] ?? {}) : {};
 
   useEffect(() => {
     if (!me) return;
@@ -90,23 +95,37 @@ export default function App() {
 
   useEffect(() => {
     if (!me || !activeTeam) return;
+    const teamCode = activeTeam.teamCode;
     const dispose = createTeamClient({
       token: me.token,
-      teamCode: activeTeam.teamCode,
+      teamCode,
       onMessage: (msg) => {
-        setFeed((prev) => [{ ...msg, _ts: Date.now() }, ...prev].slice(0, 30));
-        setActivity((prev) => ({
-          ...prev,
-          [msg.userId]: {
-            promptFirstLine: msg.promptFirstLine ?? prev[msg.userId]?.promptFirstLine ?? null,
-            todayTokens: msg.todayTokens,
-            todayDurationSec: msg.todayDurationSec,
-            lastSeen: Date.now(),
-            event: msg.event,
-            toolName: msg.toolName,
-            displayName: msg.displayName,
-          },
-        }));
+        // 피드는 의미있는 이벤트(질문)만 — PreToolUse/PostToolUse는 노이즈
+        if (msg.event === 'UserPromptSubmit' && msg.promptFirstLine) {
+          setFeedByTeam((prev) => {
+            const cur = prev[teamCode] ?? [];
+            return { ...prev, [teamCode]: [{ ...msg, _ts: Date.now() }, ...cur].slice(0, 30) };
+          });
+        }
+        // 카드의 토큰/시간/현재작업은 모든 이벤트로 갱신
+        setActivityByTeam((prev) => {
+          const teamMap = prev[teamCode] ?? {};
+          return {
+            ...prev,
+            [teamCode]: {
+              ...teamMap,
+              [msg.userId]: {
+                promptFirstLine: msg.promptFirstLine ?? teamMap[msg.userId]?.promptFirstLine ?? null,
+                todayTokens: msg.todayTokens,
+                todayDurationSec: msg.todayDurationSec,
+                lastSeen: Date.now(),
+                event: msg.event,
+                toolName: msg.toolName,
+                displayName: msg.displayName,
+              },
+            },
+          };
+        });
       },
     });
     return dispose;
@@ -156,9 +175,12 @@ export default function App() {
       teams={teams}
       onSelectTeam={(t) => {
         if (t.id === activeTeam?.id) return;
-        setActiveTeam(t); setActivity({}); setFeed([]); setMembers([]);
+        setActiveTeam(t);
+        setMembers([]); // 멤버는 새 API 호출이 필요 — 비웠다가 useEffect로 재로드
+        // feedByTeam/activityByTeam은 보존 — 다른 팀에서 돌아왔을 때 그대로 남아있음
       }}
       onAddTeam={() => setDialog('team')}
+      onLeaveTeam={() => setDialog('leave')}
       onRename={() => setDialog('rename')}
       agent={agentState}
       onPrivacyToggle={async () => {
@@ -169,7 +191,8 @@ export default function App() {
       }}
       onLogout={() => {
         session.clear();
-        setMe(null); setTeams([]); setActiveTeam(null); setActivity({}); setFeed([]);
+        setMe(null); setTeams([]); setActiveTeam(null);
+        setActivityByTeam({}); setFeedByTeam({});
       }}
     >
       <main className="content">
@@ -190,6 +213,24 @@ export default function App() {
           }}
         />
       )}
+      {dialog === 'leave' && activeTeam && (
+        <LeaveDialog
+          token={me.token}
+          team={activeTeam}
+          onClose={() => setDialog(null)}
+          onLeft={() => {
+            const leftCode = activeTeam.teamCode;
+            const remaining = teams.filter((t) => t.id !== activeTeam.id);
+            setTeams(remaining);
+            setActiveTeam(remaining[0] ?? null);
+            setMembers([]);
+            // 떠난 팀의 캐시 정리
+            setFeedByTeam((prev) => { const { [leftCode]: _, ...rest } = prev; return rest; });
+            setActivityByTeam((prev) => { const { [leftCode]: _, ...rest } = prev; return rest; });
+            setDialog(null);
+          }}
+        />
+      )}
       {dialog === 'team' && (
         <TeamDialog
           token={me.token}
@@ -197,7 +238,7 @@ export default function App() {
           onTeamReady={(t) => {
             setTeams((prev) => prev.some((x) => x.id === t.id) ? prev : [...prev, t]);
             setActiveTeam(t);
-            setActivity({}); setFeed([]); setMembers([]);
+            setMembers([]);
             setDialog(null);
           }}
         />
@@ -206,7 +247,7 @@ export default function App() {
   );
 }
 
-function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onRename, agent, onPrivacyToggle, onLogout }) {
+function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, agent, onPrivacyToggle, onLogout }) {
   return (
     <div className="app">
       <Header
@@ -215,6 +256,7 @@ function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onRename, a
         teams={teams}
         onSelectTeam={onSelectTeam}
         onAddTeam={onAddTeam}
+        onLeaveTeam={onLeaveTeam}
         onRename={onRename}
         agent={agent}
         onPrivacyToggle={onPrivacyToggle}
@@ -239,7 +281,7 @@ function usePopover() {
   return { open, setOpen, ref };
 }
 
-function Header({ me, team, teams, onSelectTeam, onAddTeam, onRename, agent, onPrivacyToggle, onLogout }) {
+function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, agent, onPrivacyToggle, onLogout }) {
   const userMenu = usePopover();
   const teamMenu = usePopover();
   const isPrivate = agent?.state?.isPrivate;
@@ -274,6 +316,11 @@ function Header({ me, team, teams, onSelectTeam, onAddTeam, onRename, agent, onP
                 {onAddTeam && (
                   <button className="menu-item" onClick={() => { onAddTeam(); teamMenu.setOpen(false); }}>
                     + 팀 만들기 / 가입하기
+                  </button>
+                )}
+                {onLeaveTeam && (
+                  <button className="menu-item danger" onClick={() => { onLeaveTeam(); teamMenu.setOpen(false); }}>
+                    현재 팀 나가기
                   </button>
                 )}
               </div>
@@ -365,6 +412,29 @@ function RenameDialog({ token, current, onClose, onSaved }) {
             } catch (e) { setErr(e.message); } finally { setBusy(false); }
           }}
         >{busy ? '저장 중...' : '저장'}</button>
+      </div>
+      {err && <div className="error">{err}</div>}
+    </Modal>
+  );
+}
+
+function LeaveDialog({ token, team, onClose, onLeft }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  return (
+    <Modal title="팀 나가기" onClose={onClose}>
+      <p style={{ margin: '0 0 16px', color: 'var(--text-dim)', fontSize: 14, lineHeight: 1.55 }}>
+        <strong style={{ color: 'var(--text)' }}>{team.name}</strong>{' '}
+        (<code style={{ color: 'var(--warn)' }}>{team.teamCode}</code>)에서 나갈게요.<br />
+        혼자 있는 팀이면 팀이 자동 삭제돼요.
+      </p>
+      <div className="actions">
+        <button className="btn secondary" onClick={onClose}>취소</button>
+        <button className="btn primary" disabled={busy} onClick={async () => {
+          setBusy(true); setErr(null);
+          try { await leaveTeam(token, team.id); onLeft(); }
+          catch (e) { setErr(e.message); } finally { setBusy(false); }
+        }}>{busy ? '나가는 중...' : '나가기'}</button>
       </div>
       {err && <div className="error">{err}</div>}
     </Modal>
@@ -587,37 +657,37 @@ function FriendGrid({ members, activity, myUserId }) {
 function FeedPanel({ feed }) {
   return (
     <aside className="feed">
-      <h3 className="feed-title">최근 활동</h3>
-      {feed.length === 0 && (
-        <div className="feed-empty">아직 활동이 없어요.<br />Claude Code에서 첫 프롬프트를 입력해보세요.</div>
-      )}
-      <ul className="feed-list">
-        {feed.map((f, i) => (
-          <li key={i} className="feed-item">
-            <Avatar name={f.displayName} seed={f.userId} size={28} />
-            <div className="feed-body">
-              <div className="feed-head">
-                <span className="feed-who">{f.displayName}</span>
-                <span className="feed-event">{labelEvent(f.event)}</span>
+      <h3 className="feed-title">최근에 뭐 했나</h3>
+      <div className="feed-scroll">
+        {feed.length === 0 && (
+          <div className="feed-empty">최근 작업이 여기 쌓여요.<br />Claude Code에서 프롬프트를 입력해보세요.</div>
+        )}
+        <ul className="feed-list">
+          {feed.map((f, i) => (
+            <li key={`${f._ts}-${i}`} className="feed-item">
+              <Avatar name={f.displayName} seed={f.userId} size={26} />
+              <div className="feed-body">
+                <div className="feed-head">
+                  <span className="feed-who">{f.displayName}</span>
+                  <span className="feed-time">{relativeTime(f._ts)}</span>
+                </div>
+                <div className="feed-prompt">{f.promptFirstLine}</div>
               </div>
-              {f.promptFirstLine && <div className="feed-prompt">{f.promptFirstLine}</div>}
-              {f.toolName && <div className="feed-tool">{f.toolName}</div>}
-            </div>
-          </li>
-        ))}
-      </ul>
+            </li>
+          ))}
+        </ul>
+      </div>
     </aside>
   );
 }
 
-function labelEvent(event) {
-  switch (event) {
-    case 'UserPromptSubmit': return '질문';
-    case 'PreToolUse': return '도구 사용';
-    case 'PostToolUse': return '도구 완료';
-    case 'SessionStart': return '세션 시작';
-    case 'SessionEnd': return '세션 종료';
-    case 'Stop': return '응답 완료';
-    default: return event;
-  }
+function relativeTime(ts) {
+  if (!ts) return '';
+  const sec = Math.max(1, Math.round((Date.now() - ts) / 1000));
+  if (sec < 60) return `${sec}초 전`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}분 전`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}시간 전`;
+  return `${Math.round(hr / 24)}일 전`;
 }
