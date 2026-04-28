@@ -1,0 +1,25 @@
+{
+  "name": "mohani-electron",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev:vite": "vite",
+    "dev:electron": "wait-on tcp:5173 && electron .",
+    "dev": "concurrently -k -n vite,electron -c blue,magenta \"npm:dev:vite\" \"npm:dev:electron\"",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@stomp/stompjs": "^7.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^33.4.11",
+    "vite": "^6.0.7",
+    "wait-on": "^8.0.1"
+  }
+}
