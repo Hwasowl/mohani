@@ -89,5 +89,7 @@ tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
 }
 
-// OneDrive 한글경로 우회
-layout.buildDirectory = file('C:/tmp/mohani-build')
+// OneDrive 한글경로 우회 — Windows 로컬 개발에서만. Linux Docker(Render/Fly)에선 기본 경로 사용.
+if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+    layout.buildDirectory = file('C:/tmp/mohani-build')
+}
