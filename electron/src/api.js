@@ -19,11 +19,11 @@ export const session = {
 };
 
 export function getBackendUrl() {
-  // 빌드 시 baked-in 기본값 (배포용) > 사용자 설정 > localhost (dev)
+  // 우선순위: 사용자 설정(localStorage) > 빌드 시 baked URL(VITE env) > localhost(dev)
   const stored = localStorage.getItem('mohani.backendUrl');
   if (stored) return stored;
-  // VITE_MOHANI_BACKEND_URL 환경변수로 패키징 — 배포 시 prod URL 자동 적용
-  const baked = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_MOHANI_BACKEND_URL) || null;
+  // 직접 접근(optional chaining 없이) — Vite의 정적 치환 정규식이 ?. 가 끼면 못 매칭함.
+  const baked = import.meta.env.VITE_MOHANI_BACKEND_URL;
   return baked || 'http://localhost:8080';
 }
 
