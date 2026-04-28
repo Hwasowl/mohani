@@ -13,7 +13,8 @@ spring:
     redis:
       host: localhost
       port: 6379
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
-      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+mohani:
+  jwt:
+    secret: test-jwt-secret-needs-32-bytes-min-1234567890abcdef
+    ttl-seconds: 3600

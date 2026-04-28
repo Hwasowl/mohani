@@ -38,7 +38,7 @@ CREATE INDEX idx_sessions_user_started ON sessions(user_id, started_at DESC);
 
 CREATE TABLE activity_log (
     id BIGSERIAL PRIMARY KEY,
-    session_id BIGINT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    session_id BIGINT REFERENCES sessions(id) ON DELETE CASCADE,
     user_id BIGINT NOT NULL REFERENCES users(id),
     team_id BIGINT REFERENCES teams(id),
     occurred_at TIMESTAMPTZ NOT NULL,
