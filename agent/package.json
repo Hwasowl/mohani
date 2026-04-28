@@ -12,7 +12,9 @@
   "scripts": {
     "start": "node src/daemon.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postinstall": "node scripts/postinstall.js",
+    "preuninstall": "node scripts/preuninstall.js"
   },
   "dependencies": {
     "express": "^4.21.2"
