@@ -28,7 +28,8 @@ spring:
       port: 6379
 
 server:
-  port: 8080
+  # Render/Heroku 등 PaaS는 PORT env로 포트를 주입한다 — fallback 8080 (로컬 dev)
+  port: ${PORT:8080}
 
 mohani:
   jwt:
