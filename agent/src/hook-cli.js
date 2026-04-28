@@ -10,6 +10,7 @@
 
 import { argv, env, exit, stderr, stdin } from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 
 const HOST = env.MOHANI_AGENT_HOST || '127.0.0.1';
 const PORTS = (env.MOHANI_AGENT_PORTS || '24555,24556,24557').split(',').map(Number);
@@ -74,7 +75,7 @@ export function buildPayload(event, raw) {
   };
 }
 
-const isMain = import.meta.url === `file://${argv[1].replace(/\\/g, '/')}`;
+const isMain = argv[1] && import.meta.url === pathToFileURL(argv[1]).href;
 if (isMain) {
   const event = parseEventArg(argv.slice(2));
   if (!event) {

@@ -3,6 +3,7 @@
 // 24555 → 24556 → 24557 자동 폴백.
 
 import express from 'express';
+import { pathToFileURL } from 'node:url';
 import { load, save } from './config-store.js';
 import { normalizeEvent } from './events.js';
 import { createTransport } from './transport.js';
@@ -93,7 +94,7 @@ export function listenWithFallback(app, ports = PORT_CANDIDATES) {
   });
 }
 
-const isMain = import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`;
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   let cfg = load();
   const state = {

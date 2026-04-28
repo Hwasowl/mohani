@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // mohani CLI — login/team 관리 + 데몬 시작/상태.
 import { argv, env, exit } from 'node:process';
+import { pathToFileURL } from 'node:url';
 import { ensureDeviceId, load, save } from './config-store.js';
 import { createTeam, joinTeam, loginAnonymous } from './backend-client.js';
 
@@ -108,7 +109,7 @@ async function status() {
   }, null, 2));
 }
 
-const isMain = import.meta.url === `file://${argv[1].replace(/\\/g, '/')}`;
+const isMain = argv[1] && import.meta.url === pathToFileURL(argv[1]).href;
 if (isMain) {
   main().catch((err) => {
     console.error(err);

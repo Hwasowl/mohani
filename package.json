@@ -1,0 +1,27 @@
+{
+  "name": "mohani-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "데모 통합 실행 스크립트 — 인프라/백엔드/에이전트/Electron 한 번에",
+  "scripts": {
+    "infra:up": "docker compose -f backend/docker-compose.yml up -d --wait",
+    "infra:down": "docker compose -f backend/docker-compose.yml down",
+    "infra:reset": "docker compose -f backend/docker-compose.yml down -v && docker compose -f backend/docker-compose.yml up -d --wait",
+
+    "dev:backend": "cd backend && gradlew.bat bootRun",
+    "dev:agent": "cd agent && npm start",
+    "dev:electron": "cd electron && npm run dev",
+
+    "dev": "npm run infra:up && concurrently -k --kill-others-on-fail -n agent,backend,electron -c blue,magenta,cyan \"npm:dev:agent\" \"npm:dev:backend\" \"npm:dev:electron\"",
+    "dev:no-infra": "concurrently -k --kill-others-on-fail -n agent,backend,electron -c blue,magenta,cyan \"npm:dev:agent\" \"npm:dev:backend\" \"npm:dev:electron\"",
+    "restart": "npm run dev",
+
+    "test": "cd backend && gradlew.bat test && cd ../agent && npm test",
+
+    "install:all": "cd agent && npm install && cd ../electron && npm install",
+    "build:all": "cd electron && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
