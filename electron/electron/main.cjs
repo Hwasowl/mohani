@@ -5,10 +5,19 @@ const path = require('node:path');
 const DEV_URL = process.env.MOHANI_DEV_URL || 'http://localhost:5173';
 
 function createWindow() {
+  const isMac = process.platform === 'darwin';
   const win = new BrowserWindow({
-    width: 1000,
-    height: 700,
-    backgroundColor: '#0f172a',
+    width: 1080,
+    height: 720,
+    minWidth: 760,
+    minHeight: 520,
+    backgroundColor: '#0b1220',
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    titleBarOverlay: !isMac ? {
+      color: '#0b1220',
+      symbolColor: '#cbd5e1',
+      height: 36,
+    } : undefined,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
