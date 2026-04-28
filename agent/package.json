@@ -1,0 +1,26 @@
+{
+  "name": "@mohani/agent",
+  "version": "0.1.0",
+  "description": "Mohani local agent — Claude Code hook receiver, masking, backend transport",
+  "private": false,
+  "type": "module",
+  "bin": {
+    "mohani": "./src/cli.js",
+    "mohani-agent": "./src/daemon.js",
+    "mohani-hook": "./src/hook-cli.js"
+  },
+  "scripts": {
+    "start": "node src/daemon.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
