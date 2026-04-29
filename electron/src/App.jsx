@@ -82,6 +82,11 @@ function MainApp() {
   // 팀 전환 시 활동 히스토리가 사라지지 않도록 teamCode별로 보관
   const [feedByTeam, setFeedByTeam] = useState({});      // { [teamCode]: TeamFeedMessage[] }
   const [activityByTeam, setActivityByTeam] = useState({}); // { [teamCode]: { [userId]: ... } }
+  // 팀 채팅은 영구저장 안 함 — 새로고침/팀변경 시 자동 소멸 OK
+  const [chatByTeam, setChatByTeam] = useState({});       // { [teamCode]: ChatMessage[] }
+  const [unreadByTeam, setUnreadByTeam] = useState({});   // { [teamCode]: number }
+  const [chatOpen, setChatOpen] = useState(false);
+  const teamClientRef = useRef(null);
   const [agentState, setAgentState] = useState(null);
   const [error, setError] = useState(null);
   const [dialog, setDialog] = useState(null); // 'rename' | 'team' | 'leave' | null
@@ -96,6 +101,21 @@ function MainApp() {
   const activeTeamCode = activeTeam?.teamCode;
   const feed = activeTeamCode ? (feedByTeam[activeTeamCode] ?? []) : [];
   const activity = activeTeamCode ? (activityByTeam[activeTeamCode] ?? {}) : {};
+  const chat = activeTeamCode ? (chatByTeam[activeTeamCode] ?? []) : [];
+  const unreadCount = activeTeamCode ? (unreadByTeam[activeTeamCode] ?? 0) : 0;
+
+  // chatOpen/activeTeamCode을 콜백 안에서 최신값으로 보려면 ref가 필요 — 안 그러면 stale closure
+  const chatOpenRef = useRef(chatOpen);
+  useEffect(() => { chatOpenRef.current = chatOpen; }, [chatOpen]);
+  const activeTeamCodeRef = useRef(activeTeamCode);
+  useEffect(() => { activeTeamCodeRef.current = activeTeamCode; }, [activeTeamCode]);
+
+  // 채팅 패널을 열거나 팀을 바꿀 때 해당 팀 미읽음 0으로 리셋
+  useEffect(() => {
+    if (chatOpen && activeTeamCode && unreadByTeam[activeTeamCode]) {
+      setUnreadByTeam((prev) => ({ ...prev, [activeTeamCode]: 0 }));
+    }
+  }, [chatOpen, activeTeamCode]);
 
   // 백엔드 토큰이 만료/무효(예: docker reset으로 user 사라짐) → 자동으로 세션 초기화
   function handleApiError(e) {
@@ -178,7 +198,7 @@ function MainApp() {
   useEffect(() => {
     if (!me || !activeTeam) return;
     const teamCode = activeTeam.teamCode;
-    const dispose = createTeamClient({
+    const client = createTeamClient({
       token: me.token,
       teamCode,
       onMessage: (msg) => {
@@ -210,8 +230,26 @@ function MainApp() {
           };
         });
       },
+      onChat: (msg) => {
+        // 메시지에 안정 키 부여 (sentAt+userId+text도 가능하지만 충돌 가능 — Date.now() 보강)
+        const item = { ...msg, _key: `${msg.userId}-${msg.sentAt}-${Math.random().toString(36).slice(2, 6)}` };
+        setChatByTeam((prev) => {
+          const cur = prev[teamCode] ?? [];
+          // 200개 cap (메모리 보호)
+          const next = [...cur, item];
+          if (next.length > 200) next.splice(0, next.length - 200);
+          return { ...prev, [teamCode]: next };
+        });
+        // 본인이 보낸 게 아니고, 채팅 패널이 닫혀있거나 다른 팀이면 미읽음 +1
+        const isMine = msg.userId === me.userId;
+        const isVisible = chatOpenRef.current && activeTeamCodeRef.current === teamCode;
+        if (!isMine && !isVisible) {
+          setUnreadByTeam((prev) => ({ ...prev, [teamCode]: (prev[teamCode] ?? 0) + 1 }));
+        }
+      },
     });
-    return dispose;
+    teamClientRef.current = client;
+    return () => { client.disconnect(); teamClientRef.current = null; };
   }, [me, activeTeam]);
 
   // me가 바뀔 때마다 (로그인/닉네임 변경) 데몬에 토큰 동기화 — hook이 백엔드로 흘러가게.
@@ -284,6 +322,12 @@ function MainApp() {
         session.clear();
         setMe(null); setTeams([]); setActiveTeam(null);
         setActivityByTeam({}); setFeedByTeam({});
+        setChatByTeam({}); setUnreadByTeam({}); setChatOpen(false);
+      }}
+      chat={{
+        open: chatOpen,
+        unread: unreadCount,
+        onToggle: () => setChatOpen((v) => !v),
       }}
     >
       <main className="content" style={{ gridTemplateColumns: feedOpen ? `minmax(0, 1fr) ${feedWidth}px` : '1fr' }}>
@@ -319,6 +363,16 @@ function MainApp() {
         />
       )}
 
+      {chatOpen && activeTeam && (
+        <ChatDrawer
+          team={activeTeam}
+          messages={chat}
+          myUserId={me.userId}
+          onClose={() => setChatOpen(false)}
+          onSend={(text) => teamClientRef.current?.sendChat(text)}
+        />
+      )}
+
       {dialog === 'rename' && (
         <RenameDialog
           token={me.token}
@@ -346,6 +400,8 @@ function MainApp() {
             // 떠난 팀의 캐시 정리
             setFeedByTeam((prev) => { const { [leftCode]: _, ...rest } = prev; return rest; });
             setActivityByTeam((prev) => { const { [leftCode]: _, ...rest } = prev; return rest; });
+            setChatByTeam((prev) => { const { [leftCode]: _, ...rest } = prev; return rest; });
+            setUnreadByTeam((prev) => { const { [leftCode]: _, ...rest } = prev; return rest; });
             setDialog(null);
           }}
         />
@@ -366,7 +422,7 @@ function MainApp() {
   );
 }
 
-function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, agent, onPrivacyToggle, onLogout }) {
+function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, agent, onPrivacyToggle, onLogout, chat }) {
   return (
     <div className="app">
       <Header
@@ -380,6 +436,7 @@ function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam
         agent={agent}
         onPrivacyToggle={onPrivacyToggle}
         onLogout={onLogout}
+        chat={chat}
       />
       {children}
     </div>
@@ -400,7 +457,7 @@ function usePopover() {
   return { open, setOpen, ref };
 }
 
-function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, agent, onPrivacyToggle, onLogout }) {
+function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, agent, onPrivacyToggle, onLogout, chat }) {
   const userMenu = usePopover();
   const teamMenu = usePopover();
   const isPrivate = agent?.state?.isPrivate;
@@ -449,6 +506,17 @@ function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRenam
         {isPrivate && <span className="status-chip private">비공개 모드</span>}
       </div>
       <div className="grow" />
+      {me && team && chat && (
+        <button
+          className={`chat-toggle ${chat.open ? 'active' : ''}`}
+          onClick={chat.onToggle}
+          title="팀 채팅"
+        >
+          <span aria-hidden="true">💬</span>
+          <span className="chat-toggle-label">채팅</span>
+          {chat.unread > 0 && <span className="chat-unread">{chat.unread > 99 ? '99+' : chat.unread}</span>}
+        </button>
+      )}
       {me && (
         <div className="header-actions" ref={userMenu.ref}>
           <button className="me-button" onClick={() => userMenu.setOpen((v) => !v)}>
@@ -871,6 +939,97 @@ function formatTime(iso) {
   return d.toLocaleDateString();
 }
 
+function ChatDrawer({ team, messages, myUserId, onClose, onSend }) {
+  const [draft, setDraft] = useState('');
+  const listRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // 새 메시지가 추가되면 맨 아래로 스크롤
+  useEffect(() => {
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length]);
+
+  // 열리면 입력창에 포커스
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // ESC로 닫기
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const submit = () => {
+    const t = draft.trim();
+    if (!t) return;
+    const ok = onSend?.(t);
+    if (ok !== false) setDraft('');
+  };
+
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <aside className="drawer chat-drawer" role="dialog" aria-label={`${team.name} 팀 채팅`}>
+        <header className="drawer-head">
+          <div className="drawer-meta">
+            <div className="drawer-name">{team.name} · 팀 채팅</div>
+            <div className="drawer-stats chat-hint">새로고침/팀 변경 시 사라져요 · ESC로 닫기</div>
+          </div>
+        </header>
+
+        <div className="chat-list" ref={listRef}>
+          {messages.length === 0 && (
+            <div className="drawer-empty">첫 메시지를 남겨보세요.</div>
+          )}
+          {messages.map((m, idx) => {
+            const isMine = m.userId === myUserId;
+            const prev = messages[idx - 1];
+            const sameSender = prev && prev.userId === m.userId
+              && Math.abs(Date.parse(m.sentAt) - Date.parse(prev.sentAt)) < 60_000;
+            return (
+              <div key={m._key ?? `${m.userId}-${m.sentAt}-${idx}`} className={`chat-row ${isMine ? 'mine' : ''}`}>
+                {!isMine && !sameSender && (
+                  <div className="chat-avatar">
+                    <Avatar name={m.displayName} seed={m.userId} size={28} />
+                  </div>
+                )}
+                {!isMine && sameSender && <div className="chat-avatar-spacer" />}
+                <div className="chat-bubble-wrap">
+                  {!sameSender && (
+                    <div className="chat-meta">
+                      <span className="chat-sender">{isMine ? '나' : m.displayName}</span>
+                      <span className="chat-time">{formatTime(m.sentAt)}</span>
+                    </div>
+                  )}
+                  <div className="chat-bubble">{m.text}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <form
+          className="chat-input"
+          onSubmit={(e) => { e.preventDefault(); submit(); }}
+        >
+          <input
+            ref={inputRef}
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="메시지를 입력하세요"
+            maxLength={1000}
+          />
+          <button type="submit" disabled={!draft.trim()}>보내기</button>
+        </form>
+      </aside>
+    </>
+  );
+}
+
 function FeedPanel({ feed, width, onResize, onClose }) {
   // 좌측 핸들 드래그로 폭 조절. 220 ~ 560px 범위.
   const dragRef = useRef(null);
@@ -984,7 +1143,7 @@ function WidgetApp() {
   useEffect(() => {
     if (!me || !team) return;
     listTeamMembers(me.token, team.id).then(setMembers).catch(() => {});
-    const dispose = createTeamClient({
+    const client = createTeamClient({
       token: me.token,
       teamCode: team.teamCode,
       onMessage: (msg) => {
@@ -1000,7 +1159,7 @@ function WidgetApp() {
         }));
       },
     });
-    return dispose;
+    return () => client.disconnect();
   }, [me, team]);
 
   return (
