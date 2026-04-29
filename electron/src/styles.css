@@ -1109,27 +1109,21 @@ button { font-family: inherit; }
 }
 .chat-standalone-hint { font-size: 11px; opacity: 0.55; font-weight: 400; }
 
-/* ── Turn (Q-A) 표시 ── */
-.turn-label {
+/* ── Turn 종류 배지 (CLI 배지와 동일 스타일 톤) ── */
+.kind-badge {
   display: inline-block;
-  width: 18px;
-  height: 18px;
-  line-height: 18px;
-  text-align: center;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 10px; font-weight: 600;
+  padding: 1px 6px;
   border-radius: 4px;
-  margin-right: 6px;
+  margin-left: 6px;
+  letter-spacing: 0.3px;
   vertical-align: middle;
 }
-.turn-label.q, .drawer-list .turn-q .turn-label { background: rgba(124, 156, 255, 0.2); color: #a5b4fc; }
-.turn-label.a, .drawer-list .turn-a .turn-label { background: rgba(74, 222, 128, 0.18); color: #86efac; }
+.kind-badge.q { background: rgba(124, 156, 255, 0.18); color: #a5b4fc; border: 1px solid rgba(124, 156, 255, 0.3); }
+.kind-badge.a { background: rgba(74, 222, 128, 0.14); color: #86efac; border: 1px solid rgba(74, 222, 128, 0.3); }
 
 .drawer-list .turn-q,
 .drawer-list .turn-a {
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
   margin: 4px 0;
   font-size: 13px;
   line-height: 1.5;

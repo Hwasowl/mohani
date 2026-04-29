@@ -1156,17 +1156,17 @@ function MemberActivityDrawer({ token, team, member, stats, onClose, onError }) 
                     <div className="drawer-item-head">
                       <span className="drawer-item-time">{formatTime(it.occurredAt)}</span>
                       <CliBadge kind={it.cliKind} />
+                      {it.promptFirstLine && <span className="kind-badge q">질문</span>}
+                      {it.assistantPreview && <span className="kind-badge a">답변</span>}
                       <span className="drawer-caret">{open ? '▾' : '▸'}</span>
                     </div>
                     {it.promptFirstLine && (
                       <div className="turn-q">
-                        <span className="turn-label">Q</span>
                         <span className="turn-text">{it.promptFirstLine}</span>
                       </div>
                     )}
                     {it.assistantPreview && (
                       <div className="turn-a">
-                        <span className="turn-label">A</span>
                         <span className="turn-text">{it.assistantPreview}</span>
                       </div>
                     )}
@@ -1609,17 +1609,15 @@ function FeedPanel({ feed, width, onResize, onClose }) {
                   <div className="feed-head">
                     <span className="feed-who">{f.displayName}</span>
                     <CliBadge kind={f.cliKind} />
+                    {f.promptFirstLine && <span className="kind-badge q">질문</span>}
+                    {f.assistantPreview && <span className="kind-badge a">답변</span>}
                     <span className="feed-time">{relativeTime(f._ts)}</span>
                   </div>
                   {f.promptFirstLine && (
-                    <div className={`feed-prompt ${open ? 'wrap' : ''}`}>
-                      <span className="turn-label q">Q</span> {f.promptFirstLine}
-                    </div>
+                    <div className={`feed-prompt ${open ? 'wrap' : ''}`}>{f.promptFirstLine}</div>
                   )}
                   {f.assistantPreview && (
-                    <div className={`feed-answer ${open ? 'wrap' : ''}`}>
-                      <span className="turn-label a">A</span> {f.assistantPreview}
-                    </div>
+                    <div className={`feed-answer ${open ? 'wrap' : ''}`}>{f.assistantPreview}</div>
                   )}
                   {open && (
                     <div className="feed-detail">
