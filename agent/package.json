@@ -1,6 +1,6 @@
 {
   "name": "mohani",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Mohani — share what you're doing with AI CLIs to your friends. One install, one command.",
   "private": false,
   "type": "module",
@@ -9,6 +9,7 @@
     "scripts/**/*.js",
     "ui/**/*",
     "electron-main.cjs",
+    "electron-preload.cjs",
     "README.md"
   ],
   "repository": {
