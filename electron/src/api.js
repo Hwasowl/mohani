@@ -9,12 +9,20 @@ export function envKey(name) {
 
 const STORAGE_KEY = envKey('mohani.session');
 
-// PROD 빌드에서만: 과거 cloudflared 임시 URL이 localStorage에 박혀 있으면 청소.
-// (강제 주입은 하지 않는다 — baked URL이 fallback으로 처리)
-if (import.meta.env.PROD && typeof window !== 'undefined' && window.localStorage) {
-  const stored = localStorage.getItem('mohani.backendUrl');
-  if (stored && stored.includes('trycloudflare.com')) {
-    localStorage.removeItem('mohani.backendUrl');
+// 자동 정리: 환경별로 stale localStorage 항목 제거.
+// - DEV: 'mohani.backendUrl'은 DEV에서 안 쓰는 키 (baked = .env.development의 localhost).
+//        잔재가 남아있으면 PROD↔DEV 전환 시 혼란만 일으키므로 항상 청소.
+// - PROD: 과거 cloudflared 임시 URL은 더 이상 유효하지 않으니 청소.
+if (typeof window !== 'undefined' && window.localStorage) {
+  if (import.meta.env.DEV) {
+    if (localStorage.getItem('mohani.backendUrl') !== null) {
+      localStorage.removeItem('mohani.backendUrl');
+    }
+  } else {
+    const stored = localStorage.getItem('mohani.backendUrl');
+    if (stored && stored.includes('trycloudflare.com')) {
+      localStorage.removeItem('mohani.backendUrl');
+    }
   }
 }
 
