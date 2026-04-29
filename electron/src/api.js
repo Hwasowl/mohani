@@ -2,15 +2,12 @@
 const AGENT_PORTS = [24555, 24556, 24557];
 const STORAGE_KEY = 'mohani.session';
 
-// 1회성 마이그레이션: 과거 cloudflared 임시 URL이 localStorage에 박혀 있던 사용자들을
-// Render 배포 URL로 강제 이동. 키가 이미 찍혀 있으면 사용자 설정을 존중한다.
-const RENDER_URL = 'https://mohani.onrender.com';
-const MIGRATION_KEY = 'mohani.migration.render-v1';
-if (typeof window !== 'undefined' && window.localStorage) {
-  if (!localStorage.getItem(MIGRATION_KEY)) {
+// PROD 빌드에서만: 과거 cloudflared 임시 URL이 localStorage에 박혀 있으면 청소.
+// (강제 주입은 하지 않는다 — baked URL이 fallback으로 처리)
+if (import.meta.env.PROD && typeof window !== 'undefined' && window.localStorage) {
+  const stored = localStorage.getItem('mohani.backendUrl');
+  if (stored && stored.includes('trycloudflare.com')) {
     localStorage.removeItem('mohani.backendUrl');
-    localStorage.setItem('mohani.backendUrl', RENDER_URL);
-    localStorage.setItem(MIGRATION_KEY, '1');
   }
 }
 
@@ -31,9 +28,14 @@ export const session = {
 };
 
 export function getBackendUrl() {
-  // 우선순위: 사용자 설정(localStorage) > 빌드 시 baked URL(VITE env) > localhost(dev)
-  const stored = localStorage.getItem('mohani.backendUrl');
-  if (stored) return stored;
+  // DEV: baked URL이 항상 우선 (localStorage 무시) — 로컬 개발 환경을 깨끗하게 유지.
+  //      .env.development 에 의해 baked = http://localhost:8080
+  // PROD: 사용자 설정(localStorage) > baked URL > 8080
+  //       .env.production 에 의해 baked = https://mohani.onrender.com
+  if (import.meta.env.PROD) {
+    const stored = localStorage.getItem('mohani.backendUrl');
+    if (stored) return stored;
+  }
   // 직접 접근(optional chaining 없이) — Vite의 정적 치환 정규식이 ?. 가 끼면 못 매칭함.
   const baked = import.meta.env.VITE_MOHANI_BACKEND_URL;
   return baked || 'http://localhost:8080';
