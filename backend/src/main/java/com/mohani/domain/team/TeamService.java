@@ -2,6 +2,10 @@ package com.mohani.domain.team;
 
 import com.mohani.domain.auth.User;
 import com.mohani.domain.auth.UserRepository;
+import com.mohani.domain.team.exception.NotATeamMemberException;
+import com.mohani.domain.team.exception.TeamNotFoundException;
+import com.mohani.global.error.BusinessException;
+import com.mohani.global.error.ErrorCode;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -88,8 +92,8 @@ public class TeamService {
             String code = codeGen.next();
             if (!teams.existsByTeamCode(code)) return code;
         }
-        throw new IllegalStateException("could not generate unique team code in "
-            + MAX_CODE_GEN_ATTEMPTS + " attempts");
+        throw new BusinessException(ErrorCode.TEAM_CODE_GENERATION,
+            "could not generate unique team code in " + MAX_CODE_GEN_ATTEMPTS + " attempts");
     }
 
     private static String normalize(String code) {
@@ -109,13 +113,5 @@ public class TeamService {
         public static MemberView from(User u) {
             return new MemberView(u.getId(), u.getDisplayName(), u.getAvatarUrl());
         }
-    }
-
-    public static class TeamNotFoundException extends RuntimeException {
-        public TeamNotFoundException(String code) { super("team not found: " + code); }
-    }
-
-    public static class NotATeamMemberException extends RuntimeException {
-        public NotATeamMemberException() { super("not a member of this team"); }
     }
 }

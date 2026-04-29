@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.mohani.domain.auth.AuthService.AnonymousLoginResult;
+import com.mohani.domain.auth.exception.UserNotFoundException;
 import com.mohani.global.auth.JwtService;
 import java.lang.reflect.Field;
 import java.util.Optional;
@@ -96,7 +97,7 @@ class AuthServiceTest {
     void updateDisplayName_throwsWhenUserMissing() {
         when(users.findById(404L)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.updateDisplayName(404L, "x"))
-            .isInstanceOf(AuthService.UserNotFoundException.class);
+            .isInstanceOf(UserNotFoundException.class);
     }
 
     @Test

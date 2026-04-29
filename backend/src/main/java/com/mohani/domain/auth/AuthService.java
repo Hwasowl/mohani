@@ -1,5 +1,6 @@
 package com.mohani.domain.auth;
 
+import com.mohani.domain.auth.exception.UserNotFoundException;
 import com.mohani.global.auth.JwtService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,15 +33,11 @@ public class AuthService {
     @Transactional
     public String updateDisplayName(long userId, String newDisplayName) {
         User user = users.findById(userId)
-            .orElseThrow(() -> new UserNotFoundException("user not found: " + userId));
+            .orElseThrow(() -> new UserNotFoundException(userId));
         user.rename(newDisplayName);
         return user.getDisplayName();
     }
 
     public record AnonymousLoginResult(long userId, String displayName, String token, long ttlSeconds) {
-    }
-
-    public static class UserNotFoundException extends RuntimeException {
-        public UserNotFoundException(String msg) { super(msg); }
     }
 }
