@@ -9,8 +9,12 @@ export function defaultSettingsPath() {
   return join(homedir(), '.claude', 'settings.json');
 }
 
+// 백업 파일명 충돌 방지: ms 정밀도만으로는 같은 틱에 둘이 떨어질 수 있어
+// (CI 빠른 환경, 또는 install+uninstall 연속) 6자 랜덤 접미사로 유일성 강제.
 function nowStamp() {
-  return new Date().toISOString().replace(/[:.]/g, '-');
+  const iso = new Date().toISOString().replace(/[:.]/g, '-');
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `${iso}-${rand}`;
 }
 
 function ensureDir(file) {
