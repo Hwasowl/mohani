@@ -1,6 +1,13 @@
 // 백엔드 + 로컬 데몬 HTTP 클라이언트.
 const AGENT_PORTS = [24555, 24556, 24557];
-const STORAGE_KEY = 'mohani.session';
+
+// dev/prod 환경별 localStorage 키 분리 — 두 환경의 세션·deviceId·활성팀이 섞이지 않게.
+// PROD JWT는 dev 백엔드의 시크릿으로는 검증 못 하므로 401이 떨어지는데, 키가 분리되어 있으면 충돌이 안 남.
+export function envKey(name) {
+  return import.meta.env.PROD ? name : `${name}.dev`;
+}
+
+const STORAGE_KEY = envKey('mohani.session');
 
 // PROD 빌드에서만: 과거 cloudflared 임시 URL이 localStorage에 박혀 있으면 청소.
 // (강제 주입은 하지 않는다 — baked URL이 fallback으로 처리)

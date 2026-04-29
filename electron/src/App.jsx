@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createTeam,
+  envKey,
   generateDeviceId,
   getAgentState,
   getRecentActivity,
@@ -23,10 +24,11 @@ const ACTIVE_WINDOW_MS = 90 * 1000;
 
 function useDeviceId() {
   return useMemo(() => {
-    let id = localStorage.getItem('mohani.deviceId');
+    const key = envKey('mohani.deviceId');
+    let id = localStorage.getItem(key);
     if (!id) {
       id = generateDeviceId();
-      localStorage.setItem('mohani.deviceId', id);
+      localStorage.setItem(key, id);
     }
     return id;
   }, []);
@@ -189,7 +191,7 @@ function MainApp() {
   // 활성 팀을 localStorage에 저장 — 위젯 창이 같은 팀을 보게
   useEffect(() => {
     if (activeTeam?.teamCode) {
-      localStorage.setItem('mohani.activeTeamCode', activeTeam.teamCode);
+      localStorage.setItem(envKey('mohani.activeTeamCode'), activeTeam.teamCode);
     }
   }, [activeTeam?.teamCode]);
 
@@ -937,7 +939,7 @@ function WidgetApp() {
     let cancelled = false;
     listMyTeams(me.token).then((ts) => {
       if (cancelled) return;
-      const saved = localStorage.getItem('mohani.activeTeamCode');
+      const saved = localStorage.getItem(envKey('mohani.activeTeamCode'));
       const t = ts.find((x) => x.teamCode === saved) ?? ts[0] ?? null;
       setTeam(t);
     }).catch(() => {});
