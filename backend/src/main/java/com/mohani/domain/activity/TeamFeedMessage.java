@@ -9,6 +9,7 @@ public record TeamFeedMessage(
     String displayName,
     String promptFirstLine,
     String toolName,
+    String cliKind,
     long todayTokens,
     long todayDurationSec,
     OffsetDateTime occurredAt

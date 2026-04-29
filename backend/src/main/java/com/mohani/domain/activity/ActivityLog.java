@@ -40,14 +40,18 @@ public class ActivityLog {
     @Column(name = "event_kind", nullable = false, length = 24)
     private String eventKind;
 
+    @Column(name = "cli_kind", nullable = false, length = 16)
+    private String cliKind;
+
     @Builder
     private ActivityLog(Long sessionId, Long userId, Long teamId, OffsetDateTime occurredAt,
-                        String promptFirstLine, String eventKind) {
+                        String promptFirstLine, String eventKind, String cliKind) {
         this.sessionId = sessionId;
         this.userId = userId;
         this.teamId = teamId;
         this.occurredAt = occurredAt;
         this.promptFirstLine = promptFirstLine;
         this.eventKind = eventKind;
+        this.cliKind = cliKind == null ? "claude" : cliKind;
     }
 }

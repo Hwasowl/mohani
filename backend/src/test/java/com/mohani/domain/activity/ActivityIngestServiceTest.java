@@ -72,7 +72,7 @@ class ActivityIngestServiceTest {
         ActivityEventDto evt = new ActivityEventDto(
             "UserPromptSubmit", "s1", "/tmp",
             "redis sorted set 페이징 도와줘",
-            null, null, null,
+            null, null, null, null,
             OffsetDateTime.now()
         );
 
@@ -92,7 +92,7 @@ class ActivityIngestServiceTest {
         ActivityEventDto evt = new ActivityEventDto(
             "UserPromptSubmit", "s", null,
             "leaked AKIAIOSFODNN7EXAMPLE here", // raw AWS key
-            null, null, null, OffsetDateTime.now()
+            null, null, null, null, OffsetDateTime.now()
         );
 
         IngestResult result = service.ingest(7L, evt);
@@ -108,7 +108,7 @@ class ActivityIngestServiceTest {
     @Test
     void ingest_addsTokensAndDurationToStats() {
         ActivityEventDto evt = new ActivityEventDto(
-            "Stop", "s", null, null, null, 1234L, 30,
+            "Stop", "s", null, null, null, 1234L, 30, null,
             OffsetDateTime.now()
         );
 
@@ -122,7 +122,7 @@ class ActivityIngestServiceTest {
         String long300 = "a".repeat(300);
         ActivityEventDto evt = new ActivityEventDto(
             "UserPromptSubmit", "s", null, long300,
-            null, null, null, OffsetDateTime.now()
+            null, null, null, null, OffsetDateTime.now()
         );
 
         ArgumentCaptor<ActivityLog> log = ArgumentCaptor.forClass(ActivityLog.class);
@@ -136,7 +136,7 @@ class ActivityIngestServiceTest {
         when(memberships.findAllByIdUserId(7L)).thenReturn(List.of());
 
         ActivityEventDto evt = new ActivityEventDto(
-            "UserPromptSubmit", "s", null, "hi", null, null, null, OffsetDateTime.now()
+            "UserPromptSubmit", "s", null, "hi", null, null, null, null, OffsetDateTime.now()
         );
 
         service.ingest(7L, evt);

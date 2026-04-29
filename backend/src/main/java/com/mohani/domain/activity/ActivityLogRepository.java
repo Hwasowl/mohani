@@ -32,6 +32,7 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> 
         String getDisplayName();
         String getPromptFirstLine();
         String getEventKind();
+        String getCliKind();
     }
 
     // 팀 전체 시간순 피드 — UserPromptSubmit + 비어있지 않은 prompt만 (노이즈 제거)
@@ -41,7 +42,8 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> 
                a.userId AS userId,
                u.displayName AS displayName,
                a.promptFirstLine AS promptFirstLine,
-               a.eventKind AS eventKind
+               a.eventKind AS eventKind,
+               a.cliKind AS cliKind
         FROM ActivityLog a
         JOIN User u ON u.id = a.userId
         WHERE a.teamId = :teamId

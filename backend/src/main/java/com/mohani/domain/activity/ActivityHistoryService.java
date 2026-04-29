@@ -63,14 +63,16 @@ public class ActivityHistoryService {
         long id,
         OffsetDateTime occurredAt,
         String promptFirstLine,
-        String eventKind
+        String eventKind,
+        String cliKind
     ) {
         static ActivityHistoryItem from(ActivityLog log) {
             return new ActivityHistoryItem(
                 log.getId(),
                 log.getOccurredAt(),
                 log.getPromptFirstLine(),
-                log.getEventKind()
+                log.getEventKind(),
+                log.getCliKind()
             );
         }
     }
@@ -81,7 +83,8 @@ public class ActivityHistoryService {
         long userId,
         String displayName,
         String promptFirstLine,
-        String eventKind
+        String eventKind,
+        String cliKind
     ) {
         static FeedItem from(FeedRow row) {
             return new FeedItem(
@@ -90,7 +93,8 @@ public class ActivityHistoryService {
                 row.getUserId(),
                 row.getDisplayName(),
                 row.getPromptFirstLine(),
-                row.getEventKind()
+                row.getEventKind(),
+                row.getCliKind()
             );
         }
     }

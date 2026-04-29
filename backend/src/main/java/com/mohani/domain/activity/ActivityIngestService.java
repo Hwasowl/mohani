@@ -68,6 +68,7 @@ public class ActivityIngestService {
         long todayDurationSec = stats.getTodayDurationSec(userId, day);
         List<TeamMember> myTeams = memberships.findAllByIdUserId(userId);
 
+        String cliKind = event.cliKind() == null || event.cliKind().isBlank() ? "claude" : event.cliKind();
         for (TeamMember m : myTeams) {
             ActivityLog row = ActivityLog.builder()
                 .userId(userId)
@@ -75,6 +76,7 @@ public class ActivityIngestService {
                 .occurredAt(occurredAt)
                 .promptFirstLine(firstLine)
                 .eventKind(event.event())
+                .cliKind(cliKind)
                 .build();
             activities.save(row);
 
@@ -85,6 +87,7 @@ public class ActivityIngestService {
                 user.getDisplayName(),
                 firstLine,
                 event.toolName(),
+                cliKind,
                 todayTokens,
                 todayDurationSec,
                 occurredAt

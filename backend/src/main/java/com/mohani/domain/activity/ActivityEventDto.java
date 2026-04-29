@@ -12,6 +12,7 @@ public record ActivityEventDto(
     String toolName,                   // PreToolUse / PostToolUse
     Long totalTokens,                  // Stop / 누적 토큰
     Integer durationDeltaSec,          // 활동 시간 증분 (heartbeat 30s 등)
+    String cliKind,                    // 'claude' | 'codex' (null이면 'claude'로 처리)
     @NotNull OffsetDateTime occurredAt
 ) {
 }

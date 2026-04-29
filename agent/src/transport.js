@@ -80,6 +80,7 @@ export function toBackendDto(normalized) {
     toolName: normalized.toolName ?? null,
     totalTokens: normalized.totalTokens ?? null,
     durationDeltaSec: normalized.durationDeltaSec ?? null,
+    cliKind: normalized.cliKind ?? null,
     occurredAt: normalized.occurredAt,
   };
 }

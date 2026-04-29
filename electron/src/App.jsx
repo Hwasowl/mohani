@@ -42,6 +42,12 @@ function hashHue(seed) {
   return h % 360;
 }
 
+function CliBadge({ kind }) {
+  if (!kind) return null;
+  const label = kind === 'codex' ? 'Codex' : kind === 'aider' ? 'Aider' : 'Claude';
+  return <span className={`cli-badge cli-${kind}`}>{label}</span>;
+}
+
 function Avatar({ name, seed, size = 40, ring }) {
   const initial = (name || '?').trim().slice(0, 1).toUpperCase();
   const hue = hashHue(seed ?? name);
@@ -156,6 +162,7 @@ function MainApp() {
               userId: it.userId,
               displayName: it.displayName,
               promptFirstLine: it.promptFirstLine,
+              cliKind: it.cliKind,
               _ts: Date.parse(it.occurredAt),
             }));
           // 합치고 시간순(최신 먼저) 정렬, 30개로 cap
@@ -197,6 +204,7 @@ function MainApp() {
                 event: msg.event,
                 toolName: msg.toolName,
                 displayName: msg.displayName,
+                cliKind: msg.cliKind ?? teamMap[msg.userId]?.cliKind ?? null,
               },
             },
           };
@@ -744,6 +752,7 @@ function FriendGrid({ members, activity, myUserId, onSelect }) {
                 <div className="member-name">
                   {m.displayName}
                   {isMe && <span className="me-tag">나</span>}
+                  <CliBadge kind={a?.cliKind} />
                 </div>
                 <div className="member-status">
                   <span className={`dot ${active ? 'on' : 'off'}`} />
@@ -830,6 +839,7 @@ function MemberActivityDrawer({ token, team, member, stats, onClose, onError }) 
                   >
                     <div className="drawer-item-head">
                       <span className="drawer-item-time">{formatTime(it.occurredAt)}</span>
+                      <CliBadge kind={it.cliKind} />
                       <span className="drawer-caret">{open ? '▾' : '▸'}</span>
                     </div>
                     <div className="drawer-item-prompt">{it.promptFirstLine || '(빈 프롬프트)'}</div>
@@ -919,6 +929,7 @@ function FeedPanel({ feed, width, onResize, onClose }) {
                 <div className="feed-body">
                   <div className="feed-head">
                     <span className="feed-who">{f.displayName}</span>
+                    <CliBadge kind={f.cliKind} />
                     <span className="feed-time">{relativeTime(f._ts)}</span>
                   </div>
                   <div className={`feed-prompt ${open ? 'wrap' : ''}`}>{f.promptFirstLine}</div>

@@ -4,8 +4,10 @@
 
 import express from 'express';
 import { pathToFileURL } from 'node:url';
+import { createCodexWatcher } from './codex-watcher.js';
 import { load, save } from './config-store.js';
 import { normalizeEvent } from './events.js';
+import { detectSuspicious, maskFirstLine } from './masking.js';
 import { readLastAssistantUsage } from './transcript.js';
 import { createTransport } from './transport.js';
 
@@ -140,6 +142,33 @@ export function listenWithFallback(app, ports = PORT_CANDIDATES) {
   });
 }
 
+// Codex 세션 jsonl에서 잡은 user_message 한 건을 백엔드 DTO 흐름으로 보낸다.
+// — 마스킹 + 의심 패턴 검사 + privacy/blacklist는 events.js와 동일 정책 재사용.
+export async function dispatchCodexUserMessage({ message, occurredAt }, { getConfig, transport, log = console }) {
+  const cfg = getConfig?.() ?? {};
+  if (cfg.isPrivate) return { dropped: true, reason: 'privacy_on' };
+
+  const { masked } = maskFirstLine(message);
+  const suspicious = detectSuspicious(masked);
+  if (suspicious.length > 0) {
+    log.warn?.('[codex] suspicious after mask, dropping');
+    return { dropped: true, reason: 'suspicious_after_mask' };
+  }
+
+  if (!transport) return { dropped: true, reason: 'no_transport' };
+  return transport.send({
+    event: 'UserPromptSubmit',
+    sessionId: null,
+    cwd: null,
+    promptFirstLine: masked,
+    toolName: null,
+    totalTokens: null,
+    durationDeltaSec: null,
+    cliKind: 'codex',
+    occurredAt: occurredAt ?? new Date().toISOString(),
+  });
+}
+
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   let cfg = load();
@@ -153,11 +182,28 @@ if (isMain) {
       console.log('[mohani-agent] event', e.event, e.promptFirstLine ?? e.toolName ?? '');
     }
   };
+
+  // Codex CLI는 hook 시스템이 없으므로 ~/.codex/sessions/ 의 jsonl을 tail.
+  const codexWatcher = createCodexWatcher({
+    onUserMessage: async (msg) => {
+      try {
+        await dispatchCodexUserMessage(msg, { getConfig: () => cfg, transport: state.transport });
+        if (process.env.MOHANI_LOG === 'verbose') {
+          console.log('[mohani-agent] codex user_message →', msg.message.slice(0, 60));
+        }
+      } catch (err) {
+        console.warn('[mohani-agent] codex dispatch failed:', err.message);
+      }
+    },
+  });
+  codexWatcher.start();
+
   const app = createApp(state);
   listenWithFallback(app)
     .then(({ port }) => {
       console.log(`[mohani-agent] listening on http://127.0.0.1:${port}`);
       console.log(`[mohani-agent] backend=${cfg.backendUrl} loggedIn=${Boolean(cfg.token)}`);
+      console.log(`[mohani-agent] codex watcher started`);
     })
     .catch((err) => {
       console.error('[mohani-agent] failed to start:', err.message);
