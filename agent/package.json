@@ -1,6 +1,6 @@
 {
   "name": "mohani",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Mohani — share what you're doing with AI CLIs to your friends. One install, one command.",
   "private": false,
   "type": "module",
