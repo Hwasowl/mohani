@@ -765,9 +765,10 @@ button { font-family: inherit; }
 .drawer-item:hover { background: rgba(255,255,255,0.06); }
 .drawer-item.open { background: rgba(99,179,237,0.06); border-color: rgba(99,179,237,0.2); }
 .drawer-item-head {
-  display: flex; justify-content: space-between; align-items: center;
+  display: flex; justify-content: flex-start; align-items: center;
   font-size: 11px; color: #94a3b8; margin-bottom: 4px;
 }
+.drawer-item-head .drawer-caret { margin-left: auto; }
 .drawer-caret { color: #64748b; }
 .drawer-item-prompt {
   font-size: 13px; color: #e2e8f0;
