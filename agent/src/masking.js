@@ -78,4 +78,47 @@ export function detectSuspicious(maskedInput) {
   return hits;
 }
 
-export const _internals = { PATTERNS, MAX_LEN };
+/**
+ * Apply L3 masking to multi-line body (prompt_full / assistant_full).
+ * - 줄바꿈 보존, 길이 hard cap (50KB).
+ * - 같은 정규식 redaction 적용.
+ */
+const MAX_FULL_LEN = 50_000;
+export function maskBody(input) {
+  if (input == null) return { masked: '', hits: [] };
+  let text = String(input);
+  if (text.length > MAX_FULL_LEN) text = text.slice(0, MAX_FULL_LEN);
+  const hits = [];
+  for (const { name, re, replace } of PATTERNS) {
+    if (re.test(text)) {
+      hits.push(name);
+      re.lastIndex = 0;
+      text = text.replace(re, replace);
+      re.lastIndex = 0;
+    } else {
+      re.lastIndex = 0;
+    }
+  }
+  return { masked: text, hits };
+}
+
+/**
+ * 텍스트에서 N개 줄 또는 maxChars 컷으로 요약.
+ * 빈 줄은 건너뛰고 의미 있는 줄만 채움.
+ */
+export function previewLines(text, { maxLines = 3, maxChars = 500 } = {}) {
+  if (!text) return '';
+  const lines = String(text).split(/\r?\n/);
+  const picked = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    picked.push(trimmed);
+    if (picked.length >= maxLines) break;
+  }
+  let out = picked.join('\n');
+  if (out.length > maxChars) out = out.slice(0, maxChars);
+  return out;
+}
+
+export const _internals = { PATTERNS, MAX_LEN, MAX_FULL_LEN };

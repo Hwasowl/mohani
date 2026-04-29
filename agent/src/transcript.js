@@ -36,6 +36,74 @@ export function readLastAssistantUsage(transcriptPath) {
   return parseLastAssistantUsage(raw);
 }
 
+// Claude transcript의 마지막 assistant turn 본문 + 도구 사용 횟수 + usage를 함께 추출.
+// 같은 turn의 여러 message가 있을 때 가장 마지막 한 묶음만 본다.
+export function readLastAssistantTurn(transcriptPath) {
+  if (!transcriptPath || typeof transcriptPath !== 'string') return null;
+  let raw;
+  try {
+    const stat = statSync(transcriptPath);
+    if (stat.size === 0) return null;
+    if (stat.size <= MAX_READ_BYTES) {
+      raw = readFileSync(transcriptPath, 'utf8');
+    } else {
+      const fd = openSync(transcriptPath, 'r');
+      try {
+        const buf = Buffer.alloc(MAX_READ_BYTES);
+        readSync(fd, buf, 0, MAX_READ_BYTES, stat.size - MAX_READ_BYTES);
+        raw = buf.toString('utf8');
+        const firstNl = raw.indexOf('\n');
+        if (firstNl > 0) raw = raw.slice(firstNl + 1);
+      } finally { closeSync(fd); }
+    }
+  } catch { return null; }
+  return parseLastAssistantTurn(raw);
+}
+
+export function parseLastAssistantTurn(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const lines = raw.split('\n');
+  // 가장 최근 assistant 메시지 묶음을 거꾸로 찾는다.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let obj;
+    try { obj = JSON.parse(line); } catch { continue; }
+    const isAssistant =
+      obj?.type === 'assistant' ||
+      obj?.role === 'assistant' ||
+      obj?.message?.role === 'assistant';
+    if (!isAssistant) continue;
+
+    const content = obj?.message?.content ?? obj?.content ?? null;
+    let text = '';
+    let toolUseCount = 0;
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block?.type === 'text' && typeof block.text === 'string') {
+          text += (text ? '\n\n' : '') + block.text;
+        } else if (block?.type === 'tool_use') {
+          toolUseCount++;
+        }
+      }
+    } else if (typeof content === 'string') {
+      text = content;
+    }
+
+    const usage = obj?.message?.usage ?? obj?.usage ?? null;
+    let tokens = 0;
+    if (usage) {
+      tokens = Number(usage.output_tokens ?? 0)
+             + Number(usage.input_tokens ?? 0)
+             + Number(usage.cache_creation_input_tokens ?? 0)
+             + Number(usage.cache_read_input_tokens ?? 0);
+    }
+
+    return { text, toolUseCount, tokens };
+  }
+  return null;
+}
+
 // 순수 함수 — 테스트 용이성. raw JSONL 텍스트에서 마지막 assistant usage를 찾는다.
 export function parseLastAssistantUsage(raw) {
   if (!raw || typeof raw !== 'string') return null;

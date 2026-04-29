@@ -17,6 +17,7 @@ const FRESH_WINDOW_MS = 24 * 3600 * 1000;
 
 export function createCodexWatcher({
   onUserMessage,
+  onAssistantMessage,
   sessionsDir = DEFAULT_SESSIONS_DIR,
   pollIntervalMs = DEFAULT_POLL_MS,
   log = console,
@@ -73,21 +74,40 @@ export function createCodexWatcher({
   async function handleEntry(entry, filePath) {
     if (!entry || entry.type !== 'event_msg') return;
     const payload = entry.payload;
-    if (!payload || payload.type !== 'user_message') return;
-    if (typeof payload.message !== 'string' || payload.message.length === 0) return;
+    if (!payload) return;
 
     // 워처 시작 이전의 timestamp는 무시 — agent 재시작 시 과거 활동 재전송 방지.
     const tsMs = Date.parse(entry.timestamp ?? '');
     if (Number.isFinite(tsMs) && tsMs < startedAtMs) return;
+    const occurredAt = entry.timestamp ?? new Date().toISOString();
 
-    try {
-      await onUserMessage({
-        message: payload.message,
-        occurredAt: entry.timestamp ?? new Date().toISOString(),
-        sessionFile: filePath,
-      });
-    } catch (err) {
-      log.warn?.('[codex-watcher] onUserMessage error:', err.message);
+    if (payload.type === 'user_message') {
+      if (typeof payload.message !== 'string' || payload.message.length === 0) return;
+      try {
+        await onUserMessage({
+          message: payload.message,
+          occurredAt,
+          sessionFile: filePath,
+        });
+      } catch (err) {
+        log.warn?.('[codex-watcher] onUserMessage error:', err.message);
+      }
+      return;
+    }
+
+    if (payload.type === 'agent_message' && typeof onAssistantMessage === 'function') {
+      // Codex의 agent_message 본문 위치는 버전마다 message/text/content 등 다름 — 우선순위로 시도.
+      const text = payload.message ?? payload.text ?? payload.content ?? null;
+      if (typeof text !== 'string' || text.length === 0) return;
+      try {
+        await onAssistantMessage({
+          message: text,
+          occurredAt,
+          sessionFile: filePath,
+        });
+      } catch (err) {
+        log.warn?.('[codex-watcher] onAssistantMessage error:', err.message);
+      }
     }
   }
 

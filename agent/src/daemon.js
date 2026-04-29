@@ -7,8 +7,8 @@ import { pathToFileURL } from 'node:url';
 import { createCodexWatcher } from './codex-watcher.js';
 import { load, save } from './config-store.js';
 import { normalizeEvent } from './events.js';
-import { detectSuspicious, maskFirstLine } from './masking.js';
-import { readLastAssistantUsage } from './transcript.js';
+import { detectSuspicious, maskBody, maskFirstLine, previewLines } from './masking.js';
+import { readLastAssistantTurn, readLastAssistantUsage } from './transcript.js';
 import { createTransport } from './transport.js';
 
 const PORT_CANDIDATES = [24555, 24556, 24557];
@@ -90,19 +90,32 @@ export function createApp(state = {}) {
     }
     state.lastEventAt = now;
 
-    // Stop 이벤트: transcript JSONL을 읽어 마지막 assistant turn의 정확한 토큰을 가져와
-    // 이전 측정값과의 delta를 보낸다. char/4 추정보다 훨씬 정확.
+    // Stop 이벤트: transcript JSONL을 읽어 마지막 assistant turn의 본문 + 토큰 + 도구 사용 횟수를 채운다.
     if (result.normalized.event === 'Stop' && result.normalized.transcriptPath) {
-      const usage = readLastAssistantUsage(result.normalized.transcriptPath);
-      if (usage && usage.total > 0) {
-        const sessionId = result.normalized.sessionId ?? 'default';
-        state.lastTokenTotalBySession ??= {};
-        const prev = state.lastTokenTotalBySession[sessionId] ?? 0;
-        // transcript의 last assistant usage는 그 turn의 비용(누적X) — delta로 그대로 사용.
-        // 단, 같은 transcript를 두 번 읽었거나 stop이 중복 호출된 경우엔 음수 가능 → 0 컷.
-        const delta = Math.max(0, usage.total);
-        result.normalized.totalTokens = delta;
-        state.lastTokenTotalBySession[sessionId] = prev + delta;
+      const turn = readLastAssistantTurn(result.normalized.transcriptPath);
+      if (turn) {
+        // 토큰 (기존 동작 유지)
+        if (turn.tokens > 0) {
+          const sessionId = result.normalized.sessionId ?? 'default';
+          state.lastTokenTotalBySession ??= {};
+          const prev = state.lastTokenTotalBySession[sessionId] ?? 0;
+          const delta = Math.max(0, turn.tokens);
+          result.normalized.totalTokens = delta;
+          state.lastTokenTotalBySession[sessionId] = prev + delta;
+        }
+        // 답변 본문 — 마스킹 후 preview/full 분리. 의심 패턴 잡히면 caller에서 drop.
+        if (turn.text && turn.text.length > 0) {
+          const { masked: fullMasked, hits } = maskBody(turn.text);
+          const susp = detectSuspicious(fullMasked);
+          if (susp.length > 0) {
+            console.warn('[mohani-agent] suspicious in assistant body, dropping text:', susp.join(','));
+          } else {
+            result.normalized.assistantFull = fullMasked;
+            result.normalized.assistantPreview = previewLines(fullMasked, { maxLines: 3, maxChars: 500 });
+            if (hits.length > 0) result.normalized.assistantMaskHits = hits;
+          }
+        }
+        result.normalized.toolUseCount = turn.toolUseCount;
       }
     }
 
@@ -149,7 +162,8 @@ export async function dispatchCodexUserMessage({ message, occurredAt }, { getCon
   if (cfg.isPrivate) return { dropped: true, reason: 'privacy_on' };
 
   const { masked } = maskFirstLine(message);
-  const suspicious = detectSuspicious(masked);
+  const { masked: fullMasked } = maskBody(message);
+  const suspicious = detectSuspicious(masked).concat(detectSuspicious(fullMasked));
   if (suspicious.length > 0) {
     log.warn?.('[codex] suspicious after mask, dropping');
     return { dropped: true, reason: 'suspicious_after_mask' };
@@ -161,7 +175,36 @@ export async function dispatchCodexUserMessage({ message, occurredAt }, { getCon
     sessionId: null,
     cwd: null,
     promptFirstLine: masked,
+    promptFull: fullMasked,
     toolName: null,
+    totalTokens: null,
+    durationDeltaSec: null,
+    cliKind: 'codex',
+    occurredAt: occurredAt ?? new Date().toISOString(),
+  });
+}
+
+// Codex agent_message — 백엔드에 Stop 이벤트로 보내서 직전 user_message turn에 합치게 한다.
+export async function dispatchCodexAssistantMessage({ message, occurredAt }, { getConfig, transport, log = console }) {
+  const cfg = getConfig?.() ?? {};
+  if (cfg.isPrivate) return { dropped: true, reason: 'privacy_on' };
+
+  const { masked: fullMasked } = maskBody(message);
+  const suspicious = detectSuspicious(fullMasked);
+  if (suspicious.length > 0) {
+    log.warn?.('[codex] assistant suspicious after mask, dropping');
+    return { dropped: true, reason: 'suspicious_after_mask' };
+  }
+  const preview = previewLines(fullMasked, { maxLines: 3, maxChars: 500 });
+
+  if (!transport) return { dropped: true, reason: 'no_transport' };
+  return transport.send({
+    event: 'Stop',
+    sessionId: null,
+    cwd: null,
+    assistantPreview: preview,
+    assistantFull: fullMasked,
+    toolUseCount: 0,
     totalTokens: null,
     durationDeltaSec: null,
     cliKind: 'codex',
@@ -193,6 +236,16 @@ if (isMain) {
         }
       } catch (err) {
         console.warn('[mohani-agent] codex dispatch failed:', err.message);
+      }
+    },
+    onAssistantMessage: async (msg) => {
+      try {
+        await dispatchCodexAssistantMessage(msg, { getConfig: () => cfg, transport: state.transport });
+        if (process.env.MOHANI_LOG === 'verbose') {
+          console.log('[mohani-agent] codex agent_message →', msg.message.slice(0, 60));
+        }
+      } catch (err) {
+        console.warn('[mohani-agent] codex assistant dispatch failed:', err.message);
       }
     },
   });

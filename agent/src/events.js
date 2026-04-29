@@ -1,5 +1,5 @@
 // Hook 이벤트 → 도메인 이벤트 변환. masking 적용 위치 단일화.
-import { detectSuspicious, maskFirstLine } from './masking.js';
+import { detectSuspicious, maskBody, maskFirstLine } from './masking.js';
 
 export const SUPPORTED_EVENTS = [
   'UserPromptSubmit',
@@ -54,14 +54,22 @@ export function normalizeEvent(raw, opts = {}) {
   if (event === 'UserPromptSubmit') {
     const rawPrompt = raw.prompt ?? '';
     const { masked, hits } = maskFirstLine(rawPrompt);
+    const { masked: fullMasked, hits: fullHits } = maskBody(rawPrompt);
     const suspicious = detectSuspicious(masked);
-    if (suspicious.length > 0) {
-      return { dropped: true, reason: 'suspicious_after_mask', suspicious };
+    const suspiciousFull = detectSuspicious(fullMasked);
+    if (suspicious.length > 0 || suspiciousFull.length > 0) {
+      return { dropped: true, reason: 'suspicious_after_mask',
+               suspicious: suspicious.concat(suspiciousFull) };
     }
     // 토큰은 Stop 이벤트에서 transcript 읽어 정확히 측정 — 여기선 안 셈 (이중 카운트 방지)
     return {
       dropped: false,
-      normalized: { ...base, promptFirstLine: masked, maskHits: hits },
+      normalized: {
+        ...base,
+        promptFirstLine: masked,
+        promptFull: fullMasked,
+        maskHits: Array.from(new Set([...hits, ...fullHits])),
+      },
     };
   }
 
