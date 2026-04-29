@@ -9,21 +9,11 @@ export function envKey(name) {
 
 const STORAGE_KEY = envKey('mohani.session');
 
-// 자동 정리: 환경별로 stale localStorage 항목 제거.
-// - DEV: 'mohani.backendUrl'은 DEV에서 안 쓰는 키 (baked = .env.development의 localhost).
-//        잔재가 남아있으면 PROD↔DEV 전환 시 혼란만 일으키므로 항상 청소.
-// - PROD: 과거 cloudflared 임시 URL은 더 이상 유효하지 않으니 청소.
-if (typeof window !== 'undefined' && window.localStorage) {
-  if (import.meta.env.DEV) {
-    if (localStorage.getItem('mohani.backendUrl') !== null) {
-      localStorage.removeItem('mohani.backendUrl');
-    }
-  } else {
-    const stored = localStorage.getItem('mohani.backendUrl');
-    if (stored && stored.includes('trycloudflare.com')) {
-      localStorage.removeItem('mohani.backendUrl');
-    }
-  }
+// 진단 로그 — 어떤 버전의 api.js가 로드됐는지 콘솔에서 즉시 확인 가능.
+if (typeof window !== 'undefined') {
+  // eslint-disable-next-line no-console
+  console.log('[mohani api.js v3] mode=', import.meta.env.MODE,
+              'baked=', import.meta.env.VITE_MOHANI_BACKEND_URL);
 }
 
 export const session = {
@@ -43,15 +33,20 @@ export const session = {
 };
 
 export function getBackendUrl() {
-  // DEV: baked URL이 항상 우선 (localStorage 무시) — 로컬 개발 환경을 깨끗하게 유지.
-  //      .env.development 에 의해 baked = http://localhost:8080
+  // DEV: baked URL이 무조건 우선. localStorage에 잔재가 있으면 호출 시점마다 청소 — Vite HMR로
+  //      모듈 top-level이 재실행 안 되는 상황도 자동 복구된다.
   // PROD: 사용자 설정(localStorage) > baked URL > 8080
-  //       .env.production 에 의해 baked = https://mohani.onrender.com
-  if (import.meta.env.PROD) {
-    const stored = localStorage.getItem('mohani.backendUrl');
-    if (stored) return stored;
+  if (import.meta.env.DEV) {
+    if (typeof window !== 'undefined' && window.localStorage
+        && localStorage.getItem('mohani.backendUrl') !== null) {
+      localStorage.removeItem('mohani.backendUrl');
+    }
+    // 직접 접근(optional chaining 없이) — Vite의 정적 치환 정규식이 ?. 가 끼면 못 매칭함.
+    const baked = import.meta.env.VITE_MOHANI_BACKEND_URL;
+    return baked || 'http://localhost:8080';
   }
-  // 직접 접근(optional chaining 없이) — Vite의 정적 치환 정규식이 ?. 가 끼면 못 매칭함.
+  const stored = localStorage.getItem('mohani.backendUrl');
+  if (stored) return stored;
   const baked = import.meta.env.VITE_MOHANI_BACKEND_URL;
   return baked || 'http://localhost:8080';
 }
