@@ -11,6 +11,9 @@ import org.springframework.stereotype.Component;
 public class MaskingPolicy {
 
     public static final int MAX_LEN = 200;
+    public static final int MAX_PREVIEW_LEN = 500;
+    // 전체 본문 — DB 부하/네트워크 보호용 hard cap. 50KB.
+    public static final int MAX_FULL_LEN = 50_000;
 
     private static final List<Rule> RULES = List.of(
         new Rule("AWS_KEY", Pattern.compile("\\b(?:AKIA|ASIA)[A-Z0-9]{16}\\b")),
@@ -46,6 +49,18 @@ public class MaskingPolicy {
             if (r.pattern.matcher(text).find()) hits.add(r.name);
         }
         return hits;
+    }
+
+    /** 전체 본문(prompt_full / assistant_full) — 길이 hard cap만. 마스킹은 agent 책임. */
+    public String enforceFull(String input) {
+        if (input == null || input.isEmpty()) return null;
+        return input.length() > MAX_FULL_LEN ? input.substring(0, MAX_FULL_LEN) : input;
+    }
+
+    /** AI 답변 요약 — 500자 컷 + 줄바꿈 보존. agent가 이미 3줄 요약을 보낸 가정. */
+    public String enforcePreview(String input) {
+        if (input == null || input.isEmpty()) return null;
+        return input.length() > MAX_PREVIEW_LEN ? input.substring(0, MAX_PREVIEW_LEN) : input;
     }
 
     private record Rule(String name, Pattern pattern) {

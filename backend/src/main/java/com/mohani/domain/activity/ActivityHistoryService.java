@@ -63,6 +63,11 @@ public class ActivityHistoryService {
         long id,
         OffsetDateTime occurredAt,
         String promptFirstLine,
+        String promptFull,
+        String assistantPreview,
+        String assistantFull,
+        int toolUseCount,
+        int responseTokens,
         String eventKind,
         String cliKind
     ) {
@@ -71,6 +76,11 @@ public class ActivityHistoryService {
                 log.getId(),
                 log.getOccurredAt(),
                 log.getPromptFirstLine(),
+                log.getPromptFull(),
+                log.getAssistantPreview(),
+                log.getAssistantFull(),
+                log.getToolUseCount(),
+                log.getResponseTokens(),
                 log.getEventKind(),
                 log.getCliKind()
             );
@@ -84,6 +94,9 @@ public class ActivityHistoryService {
         String displayName,
         String avatarUrl,
         String promptFirstLine,
+        String assistantPreview,
+        int toolUseCount,
+        int responseTokens,
         String eventKind,
         String cliKind
     ) {
@@ -95,6 +108,9 @@ public class ActivityHistoryService {
                 row.getDisplayName(),
                 row.getAvatarUrl(),
                 row.getPromptFirstLine(),
+                row.getAssistantPreview(),
+                row.getToolUseCount() == null ? 0 : row.getToolUseCount(),
+                row.getResponseTokens() == null ? 0 : row.getResponseTokens(),
                 row.getEventKind(),
                 row.getCliKind()
             );

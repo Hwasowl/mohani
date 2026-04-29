@@ -9,6 +9,7 @@ public record TeamFeedMessage(
     String displayName,
     String avatarUrl,
     String promptFirstLine,
+    String assistantPreview,
     String toolName,
     String cliKind,
     long todayTokens,

@@ -11,6 +11,24 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> 
 
     List<ActivityLog> findByTeamIdAndUserIdOrderByOccurredAtDesc(Long teamId, Long userId, Pageable pageable);
 
+    // turn 매칭용 — 같은 (user, cli, team) 의 가장 최근 미응답(UserPromptSubmit) row 찾기.
+    // Stop이 도착하면 이 row에 assistant 정보를 합친다(같은 row update).
+    @Query("""
+        SELECT a FROM ActivityLog a
+        WHERE a.userId = :userId
+          AND a.teamId = :teamId
+          AND a.cliKind = :cliKind
+          AND a.eventKind = 'UserPromptSubmit'
+          AND a.assistantPreview IS NULL
+          AND a.occurredAt >= :since
+        ORDER BY a.occurredAt DESC
+    """)
+    List<ActivityLog> findUnansweredTurns(@Param("userId") Long userId,
+                                          @Param("teamId") Long teamId,
+                                          @Param("cliKind") String cliKind,
+                                          @Param("since") OffsetDateTime since,
+                                          Pageable pageable);
+
     interface UserLastSeen {
         Long getUserId();
         OffsetDateTime getLastSeen();
@@ -32,6 +50,9 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> 
         String getDisplayName();
         String getAvatarUrl();
         String getPromptFirstLine();
+        String getAssistantPreview();
+        Integer getToolUseCount();
+        Integer getResponseTokens();
         String getEventKind();
         String getCliKind();
     }
@@ -44,6 +65,9 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> 
                u.displayName AS displayName,
                u.avatarUrl AS avatarUrl,
                a.promptFirstLine AS promptFirstLine,
+               a.assistantPreview AS assistantPreview,
+               a.toolUseCount AS toolUseCount,
+               a.responseTokens AS responseTokens,
                a.eventKind AS eventKind,
                a.cliKind AS cliKind
         FROM ActivityLog a
