@@ -2,6 +2,18 @@
 const AGENT_PORTS = [24555, 24556, 24557];
 const STORAGE_KEY = 'mohani.session';
 
+// 1회성 마이그레이션: 과거 cloudflared 임시 URL이 localStorage에 박혀 있던 사용자들을
+// Render 배포 URL로 강제 이동. 키가 이미 찍혀 있으면 사용자 설정을 존중한다.
+const RENDER_URL = 'https://mohani.onrender.com';
+const MIGRATION_KEY = 'mohani.migration.render-v1';
+if (typeof window !== 'undefined' && window.localStorage) {
+  if (!localStorage.getItem(MIGRATION_KEY)) {
+    localStorage.removeItem('mohani.backendUrl');
+    localStorage.setItem('mohani.backendUrl', RENDER_URL);
+    localStorage.setItem(MIGRATION_KEY, '1');
+  }
+}
+
 export const session = {
   load() {
     try {
