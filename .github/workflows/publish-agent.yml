@@ -1,0 +1,49 @@
+# v* 태그 push 시 agent npm publish 자동 실행.
+# 사용법:
+#   1) GitHub repo Settings → Secrets and variables → Actions
+#      - Secrets: NPM_TOKEN, VITE_IMGBB_API_KEY
+#      - Variables: VITE_MOHANI_BACKEND_URL (예: https://mohani.onrender.com)
+#   2) 로컬에서 `cd agent && npm version patch` (커밋+태그 생성)
+#   3) `git push origin main --follow-tags` 로 push
+#   4) Actions 탭에서 publish 진행 확인
+name: Publish agent
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Install electron deps
+        working-directory: electron
+        run: npm ci
+
+      - name: Install agent deps
+        working-directory: agent
+        run: npm ci
+
+      - name: Run agent tests
+        working-directory: agent
+        run: npm test
+
+      - name: Publish to npm
+        working-directory: agent
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VITE_MOHANI_BACKEND_URL: ${{ vars.VITE_MOHANI_BACKEND_URL }}
+          VITE_IMGBB_API_KEY: ${{ secrets.VITE_IMGBB_API_KEY }}
+        run: npm publish --access public

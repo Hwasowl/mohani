@@ -28,10 +28,11 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Env
+# Env — 키/시크릿 들어가는 모든 .env 파일은 git 밖에 둔다.
+# .env.example만 커밋해서 어떤 키가 필요한지 알린다.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 *.local
 
 # Test coverage
