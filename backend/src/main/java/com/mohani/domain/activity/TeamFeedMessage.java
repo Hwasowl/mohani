@@ -7,6 +7,7 @@ public record TeamFeedMessage(
     String event,
     long userId,
     String displayName,
+    String avatarUrl,
     String promptFirstLine,
     String toolName,
     String cliKind,

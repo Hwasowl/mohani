@@ -85,6 +85,7 @@ public class ActivityIngestService {
                 event.event(),
                 userId,
                 user.getDisplayName(),
+                user.getAvatarUrl(),
                 firstLine,
                 event.toolName(),
                 cliKind,

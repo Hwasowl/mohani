@@ -17,6 +17,7 @@ import {
   setAgentPrivacy,
   setBackendUrl,
   getBackendUrl,
+  updateMyAvatar,
   updateMyDisplayName,
 } from './api.js';
 import { createTeamClient } from './stomp.js';
@@ -100,10 +101,12 @@ function MainApp() {
   const [chatByTeam, setChatByTeam] = useState({});       // { [teamCode]: ChatMessage[] }
   const [unreadByTeam, setUnreadByTeam] = useState({});   // { [teamCode]: number }
   const [chatOpen, setChatOpen] = useState(false);
+  // 누가 타이핑 중인지: { [teamCode]: { [userId]: { displayName, expiresAt } } }
+  const [typingByTeam, setTypingByTeam] = useState({});
   const teamClientRef = useRef(null);
   const [agentState, setAgentState] = useState(null);
   const [error, setError] = useState(null);
-  const [dialog, setDialog] = useState(null); // 'rename' | 'team' | 'leave' | null
+  const [dialog, setDialog] = useState(null); // 'rename' | 'avatar' | 'team' | 'leave' | null
   const [selectedMember, setSelectedMember] = useState(null);
   // 피드 패널 열림/닫힘 + 너비 — 사용자 선호 영구 저장
   const [feedOpen, setFeedOpen] = useState(() => localStorage.getItem('mohani.feedOpen') !== '0');
@@ -118,6 +121,15 @@ function MainApp() {
   const chat = activeTeamCode ? (chatByTeam[activeTeamCode] ?? []) : [];
   const unreadCount = activeTeamCode ? (unreadByTeam[activeTeamCode] ?? 0) : 0;
   const isLoadingTeam = activeTeamCode ? !!loadingByTeam[activeTeamCode] : false;
+  // 활성 타이핑 (5초 이내, 본인 제외) 사용자 displayName 배열
+  const typingNames = useMemo(() => {
+    if (!activeTeamCode) return [];
+    const map = typingByTeam[activeTeamCode] ?? {};
+    const now = Date.now();
+    return Object.values(map)
+      .filter((t) => t.userId !== me?.userId && t.expiresAt > now)
+      .map((t) => t.displayName);
+  }, [typingByTeam, activeTeamCode, me?.userId]);
 
   // chatOpen/activeTeamCode을 콜백 안에서 최신값으로 보려면 ref가 필요 — 안 그러면 stale closure
   const chatOpenRef = useRef(chatOpen);
@@ -131,6 +143,27 @@ function MainApp() {
       setUnreadByTeam((prev) => ({ ...prev, [activeTeamCode]: 0 }));
     }
   }, [chatOpen, activeTeamCode]);
+
+  // 타이핑 만료 정리 — 1초마다 체크해서 expiresAt 지난 항목 제거
+  useEffect(() => {
+    const id = setInterval(() => {
+      const now = Date.now();
+      setTypingByTeam((prev) => {
+        let changed = false;
+        const next = {};
+        for (const [code, map] of Object.entries(prev)) {
+          const filtered = {};
+          for (const [uid, t] of Object.entries(map)) {
+            if (t.expiresAt > now) filtered[uid] = t;
+            else changed = true;
+          }
+          next[code] = filtered;
+        }
+        return changed ? next : prev;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   // 백엔드 토큰이 만료/무효(예: docker reset으로 user 사라짐) → 자동으로 세션 초기화
   function handleApiError(e) {
@@ -267,7 +300,32 @@ function MainApp() {
           };
         });
       },
+      onTyping: (evt) => {
+        // 5초 동안 "입력 중" 으로 표시 — 추가 SEND가 오면 만료시간 갱신
+        if (!evt || evt.userId === me.userId) return;
+        setTypingByTeam((prev) => {
+          const map = prev[teamCode] ?? {};
+          return {
+            ...prev,
+            [teamCode]: {
+              ...map,
+              [evt.userId]: {
+                userId: evt.userId,
+                displayName: evt.displayName,
+                expiresAt: Date.now() + 5000,
+              },
+            },
+          };
+        });
+      },
       onChat: (msg) => {
+        // 메시지가 도착한 사용자는 더 이상 타이핑 중 아님 — 즉시 정리
+        setTypingByTeam((prev) => {
+          const map = prev[teamCode];
+          if (!map || !map[msg.userId]) return prev;
+          const { [msg.userId]: _, ...rest } = map;
+          return { ...prev, [teamCode]: rest };
+        });
         // 메시지에 안정 키 부여 (sentAt+userId+text도 가능하지만 충돌 가능 — Date.now() 보강)
         const item = { ...msg, _key: `${msg.userId}-${msg.sentAt}-${Math.random().toString(36).slice(2, 6)}` };
         setChatByTeam((prev) => {
@@ -348,6 +406,7 @@ function MainApp() {
       onAddTeam={() => setDialog('team')}
       onLeaveTeam={() => setDialog('leave')}
       onRename={() => setDialog('rename')}
+      onChangeAvatar={() => setDialog('avatar')}
       agent={agentState}
       onPrivacyToggle={async () => {
         const next = !agentState?.state?.isPrivate;
@@ -406,8 +465,10 @@ function MainApp() {
           team={activeTeam}
           messages={chat}
           myUserId={me.userId}
+          typingNames={typingNames}
           onClose={() => setChatOpen(false)}
           onSend={(payload) => teamClientRef.current?.sendChat(payload)}
+          onTyping={() => teamClientRef.current?.sendTyping()}
         />
       )}
 
@@ -418,6 +479,19 @@ function MainApp() {
           onClose={() => setDialog(null)}
           onSaved={(newName) => {
             const next = { ...me, displayName: newName };
+            session.save(next);
+            setMe(next);
+            setDialog(null);
+          }}
+        />
+      )}
+      {dialog === 'avatar' && (
+        <AvatarDialog
+          token={me.token}
+          current={me.avatarUrl}
+          onClose={() => setDialog(null)}
+          onSaved={(newUrl) => {
+            const next = { ...me, avatarUrl: newUrl };
             session.save(next);
             setMe(next);
             setDialog(null);
@@ -460,7 +534,7 @@ function MainApp() {
   );
 }
 
-function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, agent, onPrivacyToggle, onLogout, chat }) {
+function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, onChangeAvatar, agent, onPrivacyToggle, onLogout, chat }) {
   return (
     <div className="app">
       <Header
@@ -471,6 +545,7 @@ function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam
         onAddTeam={onAddTeam}
         onLeaveTeam={onLeaveTeam}
         onRename={onRename}
+        onChangeAvatar={onChangeAvatar}
         agent={agent}
         onPrivacyToggle={onPrivacyToggle}
         onLogout={onLogout}
@@ -495,7 +570,7 @@ function usePopover() {
   return { open, setOpen, ref };
 }
 
-function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, agent, onPrivacyToggle, onLogout, chat }) {
+function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, onChangeAvatar, agent, onPrivacyToggle, onLogout, chat }) {
   const userMenu = usePopover();
   const teamMenu = usePopover();
   const isPrivate = agent?.state?.isPrivate;
@@ -567,6 +642,11 @@ function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRenam
               {onRename && (
                 <button className="menu-item" onClick={() => { onRename(); userMenu.setOpen(false); }}>
                   닉네임 변경
+                </button>
+              )}
+              {onChangeAvatar && (
+                <button className="menu-item" onClick={() => { onChangeAvatar(); userMenu.setOpen(false); }}>
+                  프로필 사진
                 </button>
               )}
               {onPrivacyToggle && (
@@ -644,6 +724,90 @@ function RenameDialog({ token, current, onClose, onSaved }) {
         >{busy ? '저장 중...' : '저장'}</button>
       </div>
       {err && <div className="error">{err}</div>}
+    </Modal>
+  );
+}
+
+function AvatarDialog({ token, current, onClose, onSaved }) {
+  // 미리보기 흐름: 파일 선택 → 로컬 미리보기 + ImgBB 업로드 → PATCH /me/avatar
+  const [preview, setPreview] = useState(current ?? null); // local objectURL or remote url
+  const [uploadedUrl, setUploadedUrl] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const fileRef = useRef(null);
+  const localUrlRef = useRef(null);
+
+  useEffect(() => () => {
+    if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
+  }, []);
+
+  const onPick = async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setErr('이미지 파일만 가능해요.'); return; }
+    if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
+    const local = URL.createObjectURL(file);
+    localUrlRef.current = local;
+    setPreview(local);
+    setUploadedUrl(null);
+    setBusy(true); setErr(null);
+    try {
+      const { url } = await uploadToImgBb(file);
+      setUploadedUrl(url);
+    } catch (e) {
+      setErr(e instanceof ImgBbError ? e.message : '업로드 실패');
+    } finally { setBusy(false); }
+  };
+
+  const save = async () => {
+    if (!uploadedUrl) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await updateMyAvatar(token, uploadedUrl);
+      onSaved(r.avatarUrl);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  const remove = async () => {
+    setBusy(true); setErr(null);
+    try {
+      await updateMyAvatar(token, null);
+      onSaved(null);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal title="프로필 사진" onClose={onClose}>
+      <div className="avatar-dialog">
+        <div className="avatar-preview">
+          {preview
+            ? <img src={preview} alt="" />
+            : <div className="avatar-empty">이미지 없음</div>}
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={(e) => { onPick(e.target.files?.[0]); e.target.value = ''; }}
+        />
+        <div className="actions" style={{ flexWrap: 'wrap' }}>
+          <button className="btn secondary" onClick={() => fileRef.current?.click()} disabled={busy}>
+            {preview ? '다른 이미지 선택' : '이미지 선택'}
+          </button>
+          {current && (
+            <button className="btn secondary" onClick={remove} disabled={busy}>
+              제거
+            </button>
+          )}
+          <div style={{ flex: 1 }} />
+          <button className="btn secondary" onClick={onClose}>닫기</button>
+          <button className="btn primary" onClick={save} disabled={busy || !uploadedUrl}>
+            {busy ? '처리 중...' : '저장'}
+          </button>
+        </div>
+        {busy && !uploadedUrl && <div className="hint">ImgBB에 업로드 중…</div>}
+        {err && <div className="error">{err}</div>}
+      </div>
     </Modal>
   );
 }
@@ -932,7 +1096,7 @@ function MemberActivityDrawer({ token, team, member, stats, onClose, onError }) 
       <div className="drawer-backdrop" onClick={onClose} />
       <aside className="drawer" role="dialog" aria-label={`${member.displayName}의 활동`}>
         <header className="drawer-head">
-          <Avatar name={member.displayName} seed={member.userId} size={36} />
+          <Avatar name={member.displayName} seed={member.userId} size={36} url={member.avatarUrl} />
           <div className="drawer-meta">
             <div className="drawer-name">{member.displayName}</div>
             <div className="drawer-stats">
@@ -992,7 +1156,7 @@ function formatTime(iso) {
   return d.toLocaleDateString();
 }
 
-function ChatDrawer({ team, messages, myUserId, onClose, onSend }) {
+function ChatDrawer({ team, messages, myUserId, typingNames = [], onClose, onSend, onTyping }) {
   const [draft, setDraft] = useState('');
   // 첨부 이미지 상태: { file, previewUrl, status: 'pending'|'uploading'|'uploaded'|'failed', uploadedUrl, progress, error }
   const [attachment, setAttachment] = useState(null);
@@ -1181,7 +1345,7 @@ function ChatDrawer({ team, messages, myUserId, onClose, onSend }) {
               <div key={m._key ?? `${m.userId}-${m.sentAt}-${idx}`} className={`chat-row ${isMine ? 'mine' : ''}`}>
                 {!isMine && !sameSender && (
                   <div className="chat-avatar">
-                    <Avatar name={m.displayName} seed={m.userId} size={28} />
+                    <Avatar name={m.displayName} seed={m.userId} size={28} url={m.avatarUrl} />
                   </div>
                 )}
                 {!isMine && sameSender && <div className="chat-avatar-spacer" />}
@@ -1218,6 +1382,17 @@ function ChatDrawer({ team, messages, myUserId, onClose, onSend }) {
           >
             {unseenCount > 0 ? `↓ 새 메시지 ${unseenCount}` : '↓'}
           </button>
+        )}
+
+        {typingNames.length > 0 && (
+          <div className="chat-typing">
+            <span className="chat-typing-dots"><span /><span /><span /></span>
+            <span>
+              {typingNames.length === 1
+                ? `${typingNames[0]} 입력 중`
+                : `${typingNames[0]} 외 ${typingNames.length - 1}명 입력 중`}
+            </span>
+          </div>
         )}
 
         {attachment && (
@@ -1268,7 +1443,10 @@ function ChatDrawer({ team, messages, myUserId, onClose, onSend }) {
             ref={inputRef}
             type="text"
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              if (e.target.value.trim()) onTyping?.();
+            }}
             onPaste={onPaste}
             onKeyDown={onKeyDown}
             placeholder="메시지 입력 · 붙여넣기로 이미지 첨부"
@@ -1344,7 +1522,7 @@ function FeedPanel({ feed, width, onResize, onClose }) {
                 className={`feed-item ${open ? 'open' : ''}`}
                 onClick={() => setExpandedKey(open ? null : key)}
               >
-                <Avatar name={f.displayName} seed={f.userId} size={26} />
+                <Avatar name={f.displayName} seed={f.userId} size={26} url={f.avatarUrl} />
                 <div className="feed-body">
                   <div className="feed-head">
                     <span className="feed-who">{f.displayName}</span>
@@ -1452,7 +1630,7 @@ function WidgetApp() {
           const active = a && Date.now() - a.lastSeen < 90_000;
           return (
             <div key={m.userId} className={`widget-row ${active ? 'on' : ''}`}>
-              <Avatar name={m.displayName} seed={m.userId} size={22} ring={active} />
+              <Avatar name={m.displayName} seed={m.userId} size={22} ring={active} url={m.avatarUrl} />
               <div className="widget-text">
                 <div className="widget-name">{m.displayName}</div>
                 <div className="widget-prompt">

@@ -82,6 +82,7 @@ public class ActivityHistoryService {
         OffsetDateTime occurredAt,
         long userId,
         String displayName,
+        String avatarUrl,
         String promptFirstLine,
         String eventKind,
         String cliKind
@@ -92,6 +93,7 @@ public class ActivityHistoryService {
                 row.getOccurredAt(),
                 row.getUserId(),
                 row.getDisplayName(),
+                row.getAvatarUrl(),
                 row.getPromptFirstLine(),
                 row.getEventKind(),
                 row.getCliKind()

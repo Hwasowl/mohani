@@ -1030,6 +1030,48 @@ button { font-family: inherit; }
   50%      { box-shadow: 0 4px 20px rgba(99, 102, 241, 0.7); }
 }
 
+/* 타이핑 인디케이터 */
+.chat-typing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px 4px;
+  font-size: 11.5px;
+  color: var(--text-mute);
+  font-style: italic;
+}
+.chat-typing-dots { display: inline-flex; gap: 3px; }
+.chat-typing-dots span {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--text-mute);
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+.chat-typing-dots span:nth-child(2) { animation-delay: 0.18s; }
+.chat-typing-dots span:nth-child(3) { animation-delay: 0.36s; }
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30%           { transform: translateY(-3px); opacity: 1; }
+}
+
+/* 아바타 이미지 변형 — 기본 .avatar 위에 사진을 덮어씀 */
+.avatar-image { overflow: hidden; background: rgba(255,255,255,0.05); }
+.avatar-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* 프로필 사진 다이얼로그 */
+.avatar-dialog .avatar-preview {
+  width: 140px; height: 140px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.avatar-dialog .avatar-preview img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-dialog .avatar-empty { color: var(--text-mute); font-size: 12px; }
+.avatar-dialog .hint { color: var(--text-mute); font-size: 12px; margin-top: 8px; text-align: center; }
+
 /* 버블 안의 이미지 */
 .chat-image-btn {
   padding: 0;

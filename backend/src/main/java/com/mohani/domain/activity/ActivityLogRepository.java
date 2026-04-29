@@ -30,6 +30,7 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> 
         OffsetDateTime getOccurredAt();
         Long getUserId();
         String getDisplayName();
+        String getAvatarUrl();
         String getPromptFirstLine();
         String getEventKind();
         String getCliKind();
@@ -41,6 +42,7 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> 
                a.occurredAt AS occurredAt,
                a.userId AS userId,
                u.displayName AS displayName,
+               u.avatarUrl AS avatarUrl,
                a.promptFirstLine AS promptFirstLine,
                a.eventKind AS eventKind,
                a.cliKind AS cliKind
