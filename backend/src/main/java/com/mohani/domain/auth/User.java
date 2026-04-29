@@ -66,4 +66,16 @@ public class User {
         }
         this.displayName = trimmed;
     }
+
+    // null 또는 빈 문자열 → 아바타 제거(이니셜 fallback). 외부 검증 필수(호스트 화이트리스트 등).
+    public void setAvatarUrl(String url) {
+        if (url == null || url.isBlank()) {
+            this.avatarUrl = null;
+            return;
+        }
+        if (url.length() > 512) {
+            throw new IllegalArgumentException("avatarUrl too long (max 512)");
+        }
+        this.avatarUrl = url;
+    }
 }
