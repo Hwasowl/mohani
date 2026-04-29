@@ -1,6 +1,7 @@
 package com.mohani.domain.activity;
 
 import com.mohani.domain.activity.ActivityHistoryService.ActivityHistoryItem;
+import com.mohani.domain.activity.ActivityHistoryService.FeedItem;
 import com.mohani.global.auth.AuthenticatedUser;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,5 +27,14 @@ public class ActivityHistoryController {
         @RequestParam(required = false) Integer limit
     ) {
         return service.recentByMember(teamId, userId, user.userId(), limit);
+    }
+
+    @GetMapping("/team-feed")
+    public List<FeedItem> teamFeed(
+        AuthenticatedUser user,
+        @RequestParam Long teamId,
+        @RequestParam(required = false) Integer limit
+    ) {
+        return service.teamFeed(teamId, user.userId(), limit);
     }
 }

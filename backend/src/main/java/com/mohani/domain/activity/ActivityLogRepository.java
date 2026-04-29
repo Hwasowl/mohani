@@ -24,4 +24,31 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> 
     """)
     List<UserLastSeen> findLastSeenForUsers(@Param("teamId") Long teamId,
                                             @Param("userIds") List<Long> userIds);
+
+    interface FeedRow {
+        Long getId();
+        OffsetDateTime getOccurredAt();
+        Long getUserId();
+        String getDisplayName();
+        String getPromptFirstLine();
+        String getEventKind();
+    }
+
+    // 팀 전체 시간순 피드 — UserPromptSubmit + 비어있지 않은 prompt만 (노이즈 제거)
+    @Query("""
+        SELECT a.id AS id,
+               a.occurredAt AS occurredAt,
+               a.userId AS userId,
+               u.displayName AS displayName,
+               a.promptFirstLine AS promptFirstLine,
+               a.eventKind AS eventKind
+        FROM ActivityLog a
+        JOIN User u ON u.id = a.userId
+        WHERE a.teamId = :teamId
+          AND a.eventKind = 'UserPromptSubmit'
+          AND a.promptFirstLine IS NOT NULL
+          AND a.promptFirstLine <> ''
+        ORDER BY a.occurredAt DESC
+    """)
+    List<FeedRow> findTeamFeed(@Param("teamId") Long teamId, Pageable pageable);
 }

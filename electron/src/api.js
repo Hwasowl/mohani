@@ -118,6 +118,10 @@ export async function getRecentActivity(token, teamId, userId, limit = 10) {
   const url = `${getBackendUrl()}/api/v1/activity?teamId=${teamId}&userId=${userId}&limit=${limit}`;
   return getJson(url, token);
 }
+export async function getTeamFeed(token, teamId, limit = 30) {
+  const url = `${getBackendUrl()}/api/v1/activity/team-feed?teamId=${teamId}&limit=${limit}`;
+  return getJson(url, token);
+}
 
 // 로컬 데몬 (포트 폴백)
 export async function getAgentState() {

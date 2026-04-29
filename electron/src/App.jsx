@@ -5,6 +5,7 @@ import {
   generateDeviceId,
   getAgentState,
   getRecentActivity,
+  getTeamFeed,
   getTeamTodayStats,
   joinTeam,
   listMyTeams,
@@ -119,9 +120,10 @@ function MainApp() {
     const teamCode = activeTeam.teamCode;
     (async () => {
       try {
-        const [ms, todayStats] = await Promise.all([
+        const [ms, todayStats, feedItems] = await Promise.all([
           listTeamMembers(me.token, activeTeam.id),
           getTeamTodayStats(me.token, activeTeam.id),
+          getTeamFeed(me.token, activeTeam.id, 30),
         ]);
         setMembers(ms);
         // 첫 진입에 토큰/시간/lastSeen이 즉시 보이도록 activityByTeam 채움.
@@ -139,6 +141,28 @@ function MainApp() {
             };
           }
           return { ...prev, [teamCode]: next };
+        });
+        // "최근에 뭐 했나" 피드를 DB에서 hydrate — 새로고침해도 사라지지 않음.
+        // WSS 메시지로 들어오는 신규 항목은 prepend되어 자연스럽게 누적.
+        setFeedByTeam((prev) => {
+          // 이미 WSS로 받은 항목과 중복 안 되게 id 기반으로 머지.
+          const existing = prev[teamCode] ?? [];
+          const existingIds = new Set(existing.map((x) => x.id).filter(Boolean));
+          const hydrated = feedItems
+            .filter((it) => !existingIds.has(it.id))
+            .map((it) => ({
+              id: it.id,
+              event: it.eventKind,
+              userId: it.userId,
+              displayName: it.displayName,
+              promptFirstLine: it.promptFirstLine,
+              _ts: Date.parse(it.occurredAt),
+            }));
+          // 합치고 시간순(최신 먼저) 정렬, 30개로 cap
+          const merged = [...existing, ...hydrated]
+            .sort((a, b) => (b._ts ?? 0) - (a._ts ?? 0))
+            .slice(0, 30);
+          return { ...prev, [teamCode]: merged };
         });
       } catch (e) { handleApiError(e); }
     })();

@@ -1,5 +1,6 @@
 package com.mohani.domain.activity;
 
+import com.mohani.domain.activity.ActivityLogRepository.FeedRow;
 import com.mohani.domain.team.TeamMemberRepository;
 import com.mohani.domain.team.exception.NotATeamMemberException;
 import java.time.OffsetDateTime;
@@ -13,6 +14,8 @@ public class ActivityHistoryService {
 
     private static final int MAX_LIMIT = 50;
     private static final int DEFAULT_LIMIT = 10;
+    private static final int FEED_DEFAULT_LIMIT = 30;
+    private static final int FEED_MAX_LIMIT = 100;
 
     private final ActivityLogRepository activities;
     private final TeamMemberRepository memberships;
@@ -34,9 +37,26 @@ public class ActivityHistoryService {
             .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<FeedItem> teamFeed(long teamId, long requesterUserId, Integer limit) {
+        if (!memberships.existsByIdTeamIdAndIdUserId(teamId, requesterUserId)) {
+            throw new NotATeamMemberException();
+        }
+        int size = clampFeedLimit(limit);
+        return activities.findTeamFeed(teamId, PageRequest.of(0, size))
+            .stream()
+            .map(FeedItem::from)
+            .toList();
+    }
+
     private int clampLimit(Integer requested) {
         if (requested == null || requested <= 0) return DEFAULT_LIMIT;
         return Math.min(requested, MAX_LIMIT);
+    }
+
+    private int clampFeedLimit(Integer requested) {
+        if (requested == null || requested <= 0) return FEED_DEFAULT_LIMIT;
+        return Math.min(requested, FEED_MAX_LIMIT);
     }
 
     public record ActivityHistoryItem(
@@ -51,6 +71,26 @@ public class ActivityHistoryService {
                 log.getOccurredAt(),
                 log.getPromptFirstLine(),
                 log.getEventKind()
+            );
+        }
+    }
+
+    public record FeedItem(
+        long id,
+        OffsetDateTime occurredAt,
+        long userId,
+        String displayName,
+        String promptFirstLine,
+        String eventKind
+    ) {
+        static FeedItem from(FeedRow row) {
+            return new FeedItem(
+                row.getId(),
+                row.getOccurredAt(),
+                row.getUserId(),
+                row.getDisplayName(),
+                row.getPromptFirstLine(),
+                row.getEventKind()
             );
         }
     }

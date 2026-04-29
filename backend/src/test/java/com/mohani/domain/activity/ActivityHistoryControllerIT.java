@@ -117,6 +117,51 @@ class ActivityHistoryControllerIT {
             .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void teamFeed_returnsTeamWideRecentActivity() throws Exception {
+        long teamId = createTeamAndJoinBob();
+        OffsetDateTime base = OffsetDateTime.now();
+        // Alice 2건, Bob 2건 — UserPromptSubmit + 비어있지 않은 prompt만 노출되어야 함
+        activities.save(ActivityLog.builder().userId(aliceId).teamId(teamId)
+            .occurredAt(base.minusMinutes(20))
+            .promptFirstLine("alice 첫 작업").eventKind("UserPromptSubmit").build());
+        activities.save(ActivityLog.builder().userId(bobId).teamId(teamId)
+            .occurredAt(base.minusMinutes(10))
+            .promptFirstLine("bob 작업").eventKind("UserPromptSubmit").build());
+        activities.save(ActivityLog.builder().userId(aliceId).teamId(teamId)
+            .occurredAt(base.minusMinutes(5))
+            .promptFirstLine("alice 두번째").eventKind("UserPromptSubmit").build());
+        // 노이즈: PreToolUse + 빈 prompt — 결과에 포함되면 안됨
+        activities.save(ActivityLog.builder().userId(bobId).teamId(teamId)
+            .occurredAt(base)
+            .promptFirstLine(null).eventKind("PreToolUse").build());
+
+        MvcResult res = mvc.perform(get("/api/v1/activity/team-feed")
+                .param("teamId", String.valueOf(teamId))
+                .header("Authorization", "Bearer " + aliceToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(3))
+            .andReturn();
+
+        JsonNode arr = om.readTree(res.getResponse().getContentAsString());
+        // 최신순
+        assertThat(arr.get(0).get("promptFirstLine").asText()).isEqualTo("alice 두번째");
+        assertThat(arr.get(0).get("displayName").asText()).isEqualTo("Alice");
+        assertThat(arr.get(1).get("promptFirstLine").asText()).isEqualTo("bob 작업");
+        assertThat(arr.get(1).get("displayName").asText()).isEqualTo("Bob");
+        assertThat(arr.get(2).get("promptFirstLine").asText()).isEqualTo("alice 첫 작업");
+    }
+
+    @Test
+    void teamFeed_byNonMember_returns403() throws Exception {
+        long teamId = createTeamAndJoinBob();
+        mvc.perform(get("/api/v1/activity/team-feed")
+                .param("teamId", String.valueOf(teamId))
+                .header("Authorization", "Bearer " + carolToken))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.code").value("NOT_A_MEMBER"));
+    }
+
     // --- helpers ---
 
     private record Registered(long userId, String token) {}
