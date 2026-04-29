@@ -80,9 +80,10 @@ function Avatar({ name, seed, size = 40, ring, url }) {
 }
 
 export default function App() {
-  // URL hash로 메인/위젯 모드 분기
-  if (typeof window !== 'undefined' && window.location.hash === '#widget') {
-    return <WidgetApp />;
+  // URL hash로 메인/위젯/채팅 모드 분기
+  if (typeof window !== 'undefined') {
+    if (window.location.hash === '#widget') return <WidgetApp />;
+    if (window.location.hash === '#chat') return <ChatStandalone />;
   }
   return <MainApp />;
 }
@@ -1157,6 +1158,46 @@ function formatTime(iso) {
 }
 
 function ChatDrawer({ team, messages, myUserId, typingNames = [], onClose, onSend, onTyping }) {
+  // ESC: 라이트박스 우선 닫기 → 그 다음 드로어
+  // (라이트박스 상태는 ChatPanelBody가 들고 있음 — keydown은 거기서 처리)
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape' && !document.querySelector('.chat-lightbox')) onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <aside className="drawer chat-drawer" role="dialog" aria-label={`${team.name} 팀 채팅`}>
+        <header className="drawer-head">
+          <div className="drawer-meta">
+            <div className="drawer-name">{team.name} · 팀 채팅</div>
+            <div className="drawer-stats chat-hint">
+              새로고침/팀 변경 시 사라져요 · ESC로 닫기
+              {window.mohaniIpc?.toggleChat && (
+                <button
+                  className="chat-popout-btn"
+                  onClick={() => { window.mohaniIpc.toggleChat(); onClose(); }}
+                  title="별도 창으로 띄우기"
+                >⤢ 팝업</button>
+              )}
+            </div>
+          </div>
+        </header>
+        <ChatPanelBody
+          messages={messages}
+          myUserId={myUserId}
+          typingNames={typingNames}
+          onSend={onSend}
+          onTyping={onTyping}
+        />
+      </aside>
+    </>
+  );
+}
+
+function ChatPanelBody({ messages, myUserId, typingNames = [], onSend, onTyping }) {
   const [draft, setDraft] = useState('');
   // 첨부 이미지 상태: { file, previewUrl, status: 'pending'|'uploading'|'uploaded'|'failed', uploadedUrl, progress, error }
   const [attachment, setAttachment] = useState(null);
@@ -1215,16 +1256,13 @@ function ChatDrawer({ team, messages, myUserId, typingNames = [], onClose, onSen
     inputRef.current?.focus();
   }, []);
 
-  // ESC: 라이트박스 우선 닫기 → 그 다음 드로어
+  // ESC: 라이트박스가 열려있으면 닫고, 그 외엔 부모(ChatDrawer/ChatStandalone)가 처리
   useEffect(() => {
-    const onKey = (e) => {
-      if (e.key !== 'Escape') return;
-      if (lightbox) setLightbox(null);
-      else onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, lightbox]);
+    if (!lightbox) return;
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setLightbox(null); } };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [lightbox]);
 
   // 미리보기 URL revoke (메모리 누수 방지)
   useEffect(() => {
@@ -1315,23 +1353,12 @@ function ChatDrawer({ team, messages, myUserId, typingNames = [], onClose, onSen
   };
 
   return (
-    <>
-      <div className="drawer-backdrop" onClick={onClose} />
-      <aside
-        className={`drawer chat-drawer ${dragOver ? 'drag-over' : ''}`}
-        role="dialog"
-        aria-label={`${team.name} 팀 채팅`}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-      >
-        <header className="drawer-head">
-          <div className="drawer-meta">
-            <div className="drawer-name">{team.name} · 팀 채팅</div>
-            <div className="drawer-stats chat-hint">새로고침/팀 변경 시 사라져요 · ESC로 닫기</div>
-          </div>
-        </header>
-
+    <div
+      className={`chat-panel-body ${dragOver ? 'drag-over' : ''}`}
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={onDrop}
+    >
         <div className="chat-list" ref={listRef} onScroll={onScrollList}>
           {messages.length === 0 && (
             <div className="drawer-empty">첫 메시지를 남겨보세요. 이미지는 붙여넣기/드래그/📎 버튼.</div>
@@ -1457,14 +1484,13 @@ function ChatDrawer({ team, messages, myUserId, typingNames = [], onClose, onSen
             disabled={(!draft.trim() && !attachment) || attachment?.status === 'uploading'}
           >보내기</button>
         </form>
-      </aside>
 
       {lightbox && (
         <div className="chat-lightbox" onClick={() => setLightbox(null)} role="dialog" aria-label="이미지 보기">
           <img src={lightbox} alt="" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -1560,6 +1586,103 @@ function relativeTime(ts) {
 
 // ─── Mini Widget ────────────────────────────────────────────────
 // 항상 위에 떠있는 작은 창. 메인 창과 데이터(localStorage·STOMP) 공유.
+// 채팅 전용 팝업 창 — 메인 앱과 별도 STOMP 연결, 동일 토픽 구독.
+// 새로고침 시 메시지는 사라짐(휘발 정책 동일). 활성팀은 localStorage에서 읽음.
+function ChatStandalone() {
+  const [me] = useState(session.load());
+  const [team, setTeam] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [typingMap, setTypingMap] = useState({});
+  const clientRef = useRef(null);
+
+  useEffect(() => {
+    if (!me) return;
+    let cancelled = false;
+    listMyTeams(me.token).then((ts) => {
+      if (cancelled) return;
+      const saved = localStorage.getItem(envKey('mohani.activeTeamCode'));
+      const t = ts.find((x) => x.teamCode === saved) ?? ts[0] ?? null;
+      setTeam(t);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [me]);
+
+  useEffect(() => {
+    if (!me || !team) return;
+    const client = createTeamClient({
+      token: me.token,
+      teamCode: team.teamCode,
+      onChat: (msg) => {
+        const item = { ...msg, _key: `${msg.userId}-${msg.sentAt}-${Math.random().toString(36).slice(2, 6)}` };
+        setMessages((prev) => {
+          const next = [...prev, item];
+          if (next.length > 200) next.splice(0, next.length - 200);
+          return next;
+        });
+        // 메시지 도착 → 해당 사용자 typing 정리
+        setTypingMap((prev) => {
+          if (!prev[msg.userId]) return prev;
+          const { [msg.userId]: _, ...rest } = prev;
+          return rest;
+        });
+      },
+      onTyping: (evt) => {
+        if (!evt || evt.userId === me.userId) return;
+        setTypingMap((prev) => ({
+          ...prev,
+          [evt.userId]: { userId: evt.userId, displayName: evt.displayName, expiresAt: Date.now() + 5000 },
+        }));
+      },
+    });
+    clientRef.current = client;
+    return () => { client.disconnect(); clientRef.current = null; };
+  }, [me, team]);
+
+  // typing 만료 정리
+  useEffect(() => {
+    const id = setInterval(() => {
+      const now = Date.now();
+      setTypingMap((prev) => {
+        let changed = false;
+        const next = {};
+        for (const [uid, t] of Object.entries(prev)) {
+          if (t.expiresAt > now) next[uid] = t;
+          else changed = true;
+        }
+        return changed ? next : prev;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const typingNames = Object.values(typingMap)
+    .filter((t) => t.expiresAt > Date.now())
+    .map((t) => t.displayName);
+
+  if (!me) {
+    return <div className="chat-standalone empty">먼저 메인 창에서 로그인하세요.</div>;
+  }
+  if (!team) {
+    return <div className="chat-standalone empty">팀이 없어요. 메인 창에서 가입하세요.</div>;
+  }
+
+  return (
+    <div className="chat-standalone">
+      <div className="chat-standalone-head">
+        <span>{team.name} · 팀 채팅</span>
+        <span className="chat-standalone-hint">새로고침 시 사라져요</span>
+      </div>
+      <ChatPanelBody
+        messages={messages}
+        myUserId={me.userId}
+        typingNames={typingNames}
+        onSend={(payload) => clientRef.current?.sendChat(payload)}
+        onTyping={() => clientRef.current?.sendTyping()}
+      />
+    </div>
+  );
+}
+
 function WidgetApp() {
   const [me] = useState(session.load());
   const [team, setTeam] = useState(null);

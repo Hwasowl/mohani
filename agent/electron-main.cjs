@@ -9,6 +9,7 @@ const INDEX = path.join(__dirname, 'ui', 'index.html');
 
 let mainWindow = null;
 let widgetWindow = null;
+let chatWindow = null;
 
 function createMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -91,6 +92,47 @@ ipcMain.handle('mohani:toggle-widget', () => {
 ipcMain.handle('mohani:open-main', () => {
   createMainWindow();
   return { ok: true };
+});
+
+function createChatWindow() {
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.show();
+    chatWindow.focus();
+    return chatWindow;
+  }
+  const { workArea } = screen.getPrimaryDisplay();
+  const w = 380;
+  const h = 600;
+  chatWindow = new BrowserWindow({
+    width: w,
+    height: h,
+    x: workArea.x + workArea.width - w - 20,
+    y: workArea.y + 80,
+    minWidth: 320,
+    minHeight: 360,
+    title: '모하니 채팅',
+    backgroundColor: '#0b1220',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: PRELOAD,
+    },
+  });
+  chatWindow.loadFile(INDEX, { hash: 'chat' });
+  if (process.env.MOHANI_DEBUG === '1') {
+    chatWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+  chatWindow.on('closed', () => { chatWindow = null; });
+  return chatWindow;
+}
+
+ipcMain.handle('mohani:toggle-chat', () => {
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.close();
+    return { open: false };
+  }
+  createChatWindow();
+  return { open: true };
 });
 
 app.whenReady().then(() => {
