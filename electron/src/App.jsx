@@ -247,9 +247,14 @@ function MainApp() {
             .map((it) => ({
               id: it.id,
               event: it.eventKind,
+              eventKind: it.eventKind,
               userId: it.userId,
               displayName: it.displayName,
+              avatarUrl: it.avatarUrl,
               promptFirstLine: it.promptFirstLine,
+              assistantPreview: it.assistantPreview,
+              toolUseCount: it.toolUseCount,
+              responseTokens: it.responseTokens,
               cliKind: it.cliKind,
               _ts: Date.parse(it.occurredAt),
             }));
@@ -273,11 +278,33 @@ function MainApp() {
       token: me.token,
       teamCode,
       onMessage: (msg) => {
-        // 피드는 의미있는 이벤트(질문)만 — PreToolUse/PostToolUse는 노이즈
+        // 피드: UserPromptSubmit은 신규 prepend, Stop(답변 동봉)은 가장 최근의 같은 사용자 미응답 항목 update
         if (msg.event === 'UserPromptSubmit' && msg.promptFirstLine) {
           setFeedByTeam((prev) => {
             const cur = prev[teamCode] ?? [];
-            return { ...prev, [teamCode]: [{ ...msg, _ts: Date.now() }, ...cur].slice(0, 30) };
+            return {
+              ...prev,
+              [teamCode]: [{ ...msg, eventKind: 'UserPromptSubmit', _ts: Date.now() }, ...cur].slice(0, 30),
+            };
+          });
+        } else if (msg.event === 'Stop' && msg.assistantPreview) {
+          setFeedByTeam((prev) => {
+            const cur = prev[teamCode] ?? [];
+            // 같은 사용자 + cliKind의 가장 최근 미응답 항목 찾기
+            const idx = cur.findIndex((f) =>
+              f.userId === msg.userId
+              && f.cliKind === msg.cliKind
+              && !f.assistantPreview
+              && f.eventKind === 'UserPromptSubmit');
+            if (idx === -1) return prev;
+            const next = [...cur];
+            next[idx] = {
+              ...next[idx],
+              assistantPreview: msg.assistantPreview,
+              toolUseCount: msg.toolUseCount ?? next[idx].toolUseCount ?? 0,
+              responseTokens: msg.responseTokens ?? next[idx].responseTokens ?? 0,
+            };
+            return { ...prev, [teamCode]: next };
           });
         }
         // 카드의 토큰/시간/현재작업은 모든 이벤트로 갱신
@@ -1117,22 +1144,52 @@ function MemberActivityDrawer({ token, team, member, stats, onClose, onError }) 
             <ul className="drawer-list">
               {items.map((it) => {
                 const open = expandedId === it.id;
+                const hasAnswer = !!(it.assistantPreview || it.assistantFull);
                 return (
                   <li
                     key={it.id}
-                    className={`drawer-item ${open ? 'open' : ''}`}
+                    className={`drawer-item turn ${open ? 'open' : ''}`}
                     onClick={() => setExpandedId(open ? null : it.id)}
                   >
                     <div className="drawer-item-head">
                       <span className="drawer-item-time">{formatTime(it.occurredAt)}</span>
                       <CliBadge kind={it.cliKind} />
+                      {!hasAnswer && it.eventKind === 'UserPromptSubmit' && (
+                        <span className="turn-pending">응답 대기 중</span>
+                      )}
                       <span className="drawer-caret">{open ? '▾' : '▸'}</span>
                     </div>
-                    <div className="drawer-item-prompt">{it.promptFirstLine || '(빈 프롬프트)'}</div>
+                    {it.promptFirstLine && (
+                      <div className="turn-q">
+                        <span className="turn-label">Q</span>
+                        <span className="turn-text">{it.promptFirstLine}</span>
+                      </div>
+                    )}
+                    {it.assistantPreview && (
+                      <div className="turn-a">
+                        <span className="turn-label">A</span>
+                        <span className="turn-text">{it.assistantPreview}</span>
+                      </div>
+                    )}
                     {open && (
                       <div className="drawer-item-detail">
-                        <div><span>이벤트</span> {it.eventKind}</div>
-                        <div><span>시각</span> {new Date(it.occurredAt).toLocaleString()}</div>
+                        {it.promptFull && it.promptFull !== it.promptFirstLine && (
+                          <div className="turn-full">
+                            <div className="turn-full-label">전체 질문</div>
+                            <pre className="turn-full-text">{it.promptFull}</pre>
+                          </div>
+                        )}
+                        {it.assistantFull && it.assistantFull !== it.assistantPreview && (
+                          <div className="turn-full">
+                            <div className="turn-full-label">전체 답변</div>
+                            <pre className="turn-full-text">{it.assistantFull}</pre>
+                          </div>
+                        )}
+                        <div className="turn-meta">
+                          {it.toolUseCount > 0 && <span>도구 {it.toolUseCount}회</span>}
+                          {it.responseTokens > 0 && <span>응답 {it.responseTokens.toLocaleString()} 토큰</span>}
+                          <span>{new Date(it.occurredAt).toLocaleString()}</span>
+                        </div>
                       </div>
                     )}
                   </li>
@@ -1555,11 +1612,24 @@ function FeedPanel({ feed, width, onResize, onClose }) {
                     <CliBadge kind={f.cliKind} />
                     <span className="feed-time">{relativeTime(f._ts)}</span>
                   </div>
-                  <div className={`feed-prompt ${open ? 'wrap' : ''}`}>{f.promptFirstLine}</div>
+                  {f.promptFirstLine && (
+                    <div className={`feed-prompt ${open ? 'wrap' : ''}`}>
+                      <span className="turn-label q">Q</span> {f.promptFirstLine}
+                    </div>
+                  )}
+                  {f.assistantPreview && (
+                    <div className={`feed-answer ${open ? 'wrap' : ''}`}>
+                      <span className="turn-label a">A</span> {f.assistantPreview}
+                    </div>
+                  )}
+                  {!f.assistantPreview && f.eventKind === 'UserPromptSubmit' && (
+                    <div className="feed-pending">응답 대기 중…</div>
+                  )}
                   {open && (
                     <div className="feed-detail">
-                      {f.toolName && <span><b>도구</b> {f.toolName}</span>}
-                      <span><b>토큰</b> {(f.todayTokens ?? 0).toLocaleString()}</span>
+                      {f.toolUseCount > 0 && <span><b>도구</b> {f.toolUseCount}회</span>}
+                      {f.responseTokens > 0 && <span><b>응답</b> {f.responseTokens.toLocaleString()}t</span>}
+                      <span><b>토큰(today)</b> {(f.todayTokens ?? 0).toLocaleString()}</span>
                       <span><b>분</b> {Math.round((f.todayDurationSec ?? 0) / 60)}</span>
                     </div>
                   )}
