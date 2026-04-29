@@ -1122,6 +1122,12 @@ button { font-family: inherit; }
 .kind-badge.q { background: rgba(124, 156, 255, 0.18); color: #a5b4fc; border: 1px solid rgba(124, 156, 255, 0.3); }
 .kind-badge.a { background: rgba(74, 222, 128, 0.14); color: #86efac; border: 1px solid rgba(74, 222, 128, 0.3); }
 
+/* 헤더(드로어/피드) 안에서는 배지 간격을 더 타이트하게 */
+.drawer-item-head .cli-badge,
+.feed-head .cli-badge { margin-left: 3px; }
+.drawer-item-head .kind-badge,
+.feed-head .kind-badge { margin-left: 1px; }
+
 .drawer-list .turn-q,
 .drawer-list .turn-a {
   margin: 4px 0;
