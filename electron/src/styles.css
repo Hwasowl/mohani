@@ -1122,11 +1122,25 @@ button { font-family: inherit; }
 .kind-badge.q { background: rgba(124, 156, 255, 0.18); color: #a5b4fc; border: 1px solid rgba(124, 156, 255, 0.3); }
 .kind-badge.a { background: rgba(74, 222, 128, 0.14); color: #86efac; border: 1px solid rgba(74, 222, 128, 0.3); }
 
-/* 헤더(드로어/피드) 안에서는 배지 간격을 더 타이트하게 */
-.drawer-item-head .cli-badge,
-.feed-head .cli-badge { margin-left: 3px; }
-.drawer-item-head .kind-badge,
-.feed-head .kind-badge { margin-left: 1px; }
+/* 드로어 헤더 안 배지 간격을 타이트하게 (피드는 원래대로 둠) */
+.drawer-item-head .cli-badge { margin-left: 3px; }
+.drawer-item-head .kind-badge { margin-left: 1px; }
+
+/* 피드 패널의 인라인 Q/A 라벨 — 텍스트 앞에 작은 배지 */
+.turn-label.q,
+.turn-label.a {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  width: 14px; height: 14px;
+  line-height: 14px;
+  text-align: center;
+  border-radius: 3px;
+  margin-right: 4px;
+  vertical-align: 1px;
+}
+.turn-label.q { background: rgba(124, 156, 255, 0.18); color: #a5b4fc; }
+.turn-label.a { background: rgba(74, 222, 128, 0.16); color: #86efac; }
 
 .drawer-list .turn-q,
 .drawer-list .turn-a {
