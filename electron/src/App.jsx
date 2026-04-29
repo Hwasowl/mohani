@@ -3,6 +3,8 @@ import {
   createTeam,
   generateDeviceId,
   getAgentState,
+  getRecentActivity,
+  getTeamTodayStats,
   joinTeam,
   listMyTeams,
   listTeamMembers,
@@ -74,6 +76,7 @@ function MainApp() {
   const [agentState, setAgentState] = useState(null);
   const [error, setError] = useState(null);
   const [dialog, setDialog] = useState(null); // 'rename' | 'team' | 'leave' | null
+  const [selectedMember, setSelectedMember] = useState(null);
   // 피드 패널 열림/닫힘 + 너비 — 사용자 선호 영구 저장
   const [feedOpen, setFeedOpen] = useState(() => localStorage.getItem('mohani.feedOpen') !== '0');
   const [feedWidth, setFeedWidth] = useState(() => Number(localStorage.getItem('mohani.feedWidth')) || 320);
@@ -111,10 +114,30 @@ function MainApp() {
 
   useEffect(() => {
     if (!me || !activeTeam) return;
+    const teamCode = activeTeam.teamCode;
     (async () => {
       try {
-        const ms = await listTeamMembers(me.token, activeTeam.id);
+        const [ms, todayStats] = await Promise.all([
+          listTeamMembers(me.token, activeTeam.id),
+          getTeamTodayStats(me.token, activeTeam.id),
+        ]);
         setMembers(ms);
+        // 첫 진입에 토큰/시간/lastSeen이 즉시 보이도록 activityByTeam 채움.
+        // WSS 메시지가 도착하면 그 위에 덮어써서 실시간 갱신 유지.
+        setActivityByTeam((prev) => {
+          const existing = prev[teamCode] ?? {};
+          const next = { ...existing };
+          for (const s of todayStats) {
+            const lastSeenMs = s.lastSeen ? Date.parse(s.lastSeen) : null;
+            next[s.userId] = {
+              ...next[s.userId],
+              todayTokens: s.todayTokens ?? 0,
+              todayDurationSec: s.todayDurationSec ?? 0,
+              lastSeen: lastSeenMs ?? next[s.userId]?.lastSeen ?? null,
+            };
+          }
+          return { ...prev, [teamCode]: next };
+        });
       } catch (e) { handleApiError(e); }
     })();
   }, [me, activeTeam]);
@@ -230,7 +253,12 @@ function MainApp() {
       }}
     >
       <main className="content" style={{ gridTemplateColumns: feedOpen ? `minmax(0, 1fr) ${feedWidth}px` : '1fr' }}>
-        <FriendGrid members={members} activity={activity} myUserId={me.userId} />
+        <FriendGrid
+          members={members}
+          activity={activity}
+          myUserId={me.userId}
+          onSelect={(member) => setSelectedMember(member)}
+        />
         {feedOpen && (
           <FeedPanel
             feed={feed}
@@ -245,6 +273,17 @@ function MainApp() {
           </button>
         )}
       </main>
+
+      {selectedMember && activeTeam && (
+        <MemberActivityDrawer
+          token={me.token}
+          team={activeTeam}
+          member={selectedMember}
+          stats={activity[selectedMember.userId]}
+          onClose={() => setSelectedMember(null)}
+          onError={handleApiError}
+        />
+      )}
 
       {dialog === 'rename' && (
         <RenameDialog
@@ -648,7 +687,7 @@ function TeamSetup({ token, onTeamReady, onError, error }) {
   );
 }
 
-function FriendGrid({ members, activity, myUserId }) {
+function FriendGrid({ members, activity, myUserId, onSelect }) {
   if (members.length === 0) {
     return (
       <section className="grid-empty">
@@ -665,7 +704,14 @@ function FriendGrid({ members, activity, myUserId }) {
         const minutes = Math.round((a?.todayDurationSec ?? 0) / 60);
         const isMe = m.userId === myUserId;
         return (
-          <article key={m.userId} className={`member-card ${active ? 'active' : 'idle'}`}>
+          <article
+            key={m.userId}
+            className={`member-card ${active ? 'active' : 'idle'} clickable`}
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelect?.(m)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect?.(m); }}
+          >
             <header className="member-head">
               <Avatar name={m.displayName} seed={m.userId} size={44} ring={active} />
               <div className="member-meta">
@@ -705,9 +751,94 @@ function FriendGrid({ members, activity, myUserId }) {
   );
 }
 
+function MemberActivityDrawer({ token, team, member, stats, onClose, onError }) {
+  const [items, setItems] = useState(null); // null = 로딩
+  const [expandedId, setExpandedId] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    setItems(null);
+    setExpandedId(null);
+    getRecentActivity(token, team.id, member.userId, 10)
+      .then((rows) => { if (alive) setItems(rows); })
+      .catch((e) => {
+        if (!alive) return;
+        if (!onError?.(e)) setItems([]);
+      });
+    return () => { alive = false; };
+  }, [token, team.id, member.userId]);
+
+  const tokens = stats?.todayTokens ?? 0;
+  const minutes = Math.round((stats?.todayDurationSec ?? 0) / 60);
+
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-label={`${member.displayName}의 활동`}>
+        <header className="drawer-head">
+          <Avatar name={member.displayName} seed={member.userId} size={36} />
+          <div className="drawer-meta">
+            <div className="drawer-name">{member.displayName}</div>
+            <div className="drawer-stats">
+              <span><b>{tokens.toLocaleString()}</b> 토큰</span>
+              <span><b>{minutes}</b> 분</span>
+            </div>
+          </div>
+          <button className="drawer-close" onClick={onClose} aria-label="닫기">×</button>
+        </header>
+        <div className="drawer-body">
+          <h4 className="drawer-section">최근 활동</h4>
+          {items === null && <div className="drawer-empty">불러오는 중…</div>}
+          {items && items.length === 0 && (
+            <div className="drawer-empty">아직 기록이 없어요.</div>
+          )}
+          {items && items.length > 0 && (
+            <ul className="drawer-list">
+              {items.map((it) => {
+                const open = expandedId === it.id;
+                return (
+                  <li
+                    key={it.id}
+                    className={`drawer-item ${open ? 'open' : ''}`}
+                    onClick={() => setExpandedId(open ? null : it.id)}
+                  >
+                    <div className="drawer-item-head">
+                      <span className="drawer-item-time">{formatTime(it.occurredAt)}</span>
+                      <span className="drawer-caret">{open ? '▾' : '▸'}</span>
+                    </div>
+                    <div className="drawer-item-prompt">{it.promptFirstLine || '(빈 프롬프트)'}</div>
+                    {open && (
+                      <div className="drawer-item-detail">
+                        <div><span>이벤트</span> {it.eventKind}</div>
+                        <div><span>시각</span> {new Date(it.occurredAt).toLocaleString()}</div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function formatTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = Date.now();
+  const diff = Math.round((now - d.getTime()) / 1000);
+  if (diff < 60) return '방금';
+  if (diff < 3600) return `${Math.round(diff / 60)}분 전`;
+  if (diff < 86400) return `${Math.round(diff / 3600)}시간 전`;
+  return d.toLocaleDateString();
+}
+
 function FeedPanel({ feed, width, onResize, onClose }) {
   // 좌측 핸들 드래그로 폭 조절. 220 ~ 560px 범위.
   const dragRef = useRef(null);
+  const [expandedKey, setExpandedKey] = useState(null);
   useEffect(() => {
     const handle = dragRef.current;
     if (!handle) return;
@@ -749,18 +880,33 @@ function FeedPanel({ feed, width, onResize, onClose }) {
           <div className="feed-empty">최근 작업이 여기 쌓여요.<br />Claude Code에서 프롬프트를 입력해보세요.</div>
         )}
         <ul className="feed-list">
-          {feed.map((f, i) => (
-            <li key={`${f._ts}-${i}`} className="feed-item">
-              <Avatar name={f.displayName} seed={f.userId} size={26} />
-              <div className="feed-body">
-                <div className="feed-head">
-                  <span className="feed-who">{f.displayName}</span>
-                  <span className="feed-time">{relativeTime(f._ts)}</span>
+          {feed.map((f, i) => {
+            const key = `${f._ts}-${i}`;
+            const open = expandedKey === key;
+            return (
+              <li
+                key={key}
+                className={`feed-item ${open ? 'open' : ''}`}
+                onClick={() => setExpandedKey(open ? null : key)}
+              >
+                <Avatar name={f.displayName} seed={f.userId} size={26} />
+                <div className="feed-body">
+                  <div className="feed-head">
+                    <span className="feed-who">{f.displayName}</span>
+                    <span className="feed-time">{relativeTime(f._ts)}</span>
+                  </div>
+                  <div className={`feed-prompt ${open ? 'wrap' : ''}`}>{f.promptFirstLine}</div>
+                  {open && (
+                    <div className="feed-detail">
+                      {f.toolName && <span><b>도구</b> {f.toolName}</span>}
+                      <span><b>토큰</b> {(f.todayTokens ?? 0).toLocaleString()}</span>
+                      <span><b>분</b> {Math.round((f.todayDurationSec ?? 0) / 60)}</span>
+                    </div>
+                  )}
                 </div>
-                <div className="feed-prompt">{f.promptFirstLine}</div>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       </div>
     </aside>

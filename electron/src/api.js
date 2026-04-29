@@ -101,6 +101,13 @@ export async function listTeamMembers(token, teamId) {
 export async function leaveTeam(token, teamId) {
   return jsonRequest('DELETE', `${getBackendUrl()}/api/v1/teams/${teamId}/leave`, undefined, token);
 }
+export async function getTeamTodayStats(token, teamId) {
+  return getJson(`${getBackendUrl()}/api/v1/teams/${teamId}/today-stats`, token);
+}
+export async function getRecentActivity(token, teamId, userId, limit = 10) {
+  const url = `${getBackendUrl()}/api/v1/activity?teamId=${teamId}&userId=${userId}&limit=${limit}`;
+  return getJson(url, token);
+}
 
 // 로컬 데몬 (포트 폴백)
 export async function getAgentState() {
