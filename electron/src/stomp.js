@@ -23,13 +23,15 @@ export function createTeamClient({ token, teamCode, onMessage, onChat, onConnect
   client.activate();
 
   return {
-    sendChat(text) {
+    // text 또는 imageUrl 중 하나 이상 있으면 송신.
+    sendChat({ text, imageUrl } = {}) {
       if (!client.connected) return false;
-      const trimmed = (text ?? '').trim();
-      if (!trimmed) return false;
+      const t = (text ?? '').trim();
+      const u = (imageUrl ?? '').trim();
+      if (!t && !u) return false;
       client.publish({
         destination: `/app/team/${teamCode}/chat`,
-        body: JSON.stringify({ text: trimmed }),
+        body: JSON.stringify({ text: t || null, imageUrl: u || null }),
       });
       return true;
     },

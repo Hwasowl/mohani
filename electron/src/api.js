@@ -96,6 +96,9 @@ export async function loginAnonymous(deviceId, displayName) {
 export async function updateMyDisplayName(token, displayName) {
   return jsonRequest('PATCH', `${getBackendUrl()}/api/v1/auth/me`, { displayName }, token);
 }
+export async function updateMyAvatar(token, avatarUrl) {
+  return jsonRequest('PATCH', `${getBackendUrl()}/api/v1/auth/me/avatar`, { avatarUrl }, token);
+}
 export async function createTeam(token, name) {
   return postJson(`${getBackendUrl()}/api/v1/teams`, { name }, token);
 }

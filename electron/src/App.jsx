@@ -20,6 +20,7 @@ import {
   updateMyDisplayName,
 } from './api.js';
 import { createTeamClient } from './stomp.js';
+import { ImgBbError, uploadToImgBb } from './imgbb.js';
 
 const ACTIVE_WINDOW_MS = 90 * 1000;
 
@@ -48,9 +49,20 @@ function CliBadge({ kind }) {
   return <span className={`cli-badge cli-${kind}`}>{label}</span>;
 }
 
-function Avatar({ name, seed, size = 40, ring }) {
+function Avatar({ name, seed, size = 40, ring, url }) {
   const initial = (name || '?').trim().slice(0, 1).toUpperCase();
   const hue = hashHue(seed ?? name);
+  if (url) {
+    return (
+      <div
+        className={`avatar avatar-image${ring ? ' ring' : ''}`}
+        style={{ width: size, height: size }}
+      >
+        <img src={url} alt={name ?? ''} loading="lazy"
+             onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+      </div>
+    );
+  }
   return (
     <div
       className={`avatar${ring ? ' ring' : ''}`}
@@ -82,6 +94,8 @@ function MainApp() {
   // 팀 전환 시 활동 히스토리가 사라지지 않도록 teamCode별로 보관
   const [feedByTeam, setFeedByTeam] = useState({});      // { [teamCode]: TeamFeedMessage[] }
   const [activityByTeam, setActivityByTeam] = useState({}); // { [teamCode]: { [userId]: ... } }
+  // 팀 진입 후 첫 stats/feed가 도착할 때까지 카드를 스켈레톤으로 — 0 토큰이 잠깐 보이는 어색함 방지
+  const [loadingByTeam, setLoadingByTeam] = useState({}); // { [teamCode]: boolean }
   // 팀 채팅은 영구저장 안 함 — 새로고침/팀변경 시 자동 소멸 OK
   const [chatByTeam, setChatByTeam] = useState({});       // { [teamCode]: ChatMessage[] }
   const [unreadByTeam, setUnreadByTeam] = useState({});   // { [teamCode]: number }
@@ -103,6 +117,7 @@ function MainApp() {
   const activity = activeTeamCode ? (activityByTeam[activeTeamCode] ?? {}) : {};
   const chat = activeTeamCode ? (chatByTeam[activeTeamCode] ?? []) : [];
   const unreadCount = activeTeamCode ? (unreadByTeam[activeTeamCode] ?? 0) : 0;
+  const isLoadingTeam = activeTeamCode ? !!loadingByTeam[activeTeamCode] : false;
 
   // chatOpen/activeTeamCode을 콜백 안에서 최신값으로 보려면 ref가 필요 — 안 그러면 stale closure
   const chatOpenRef = useRef(chatOpen);
@@ -144,6 +159,8 @@ function MainApp() {
   useEffect(() => {
     if (!me || !activeTeam) return;
     const teamCode = activeTeam.teamCode;
+    // 이미 캐시된 팀이면 로딩 스켈레톤 안 띄움 (전환 시 이전 값 그대로 보여주고 백그라운드 갱신)
+    setLoadingByTeam((prev) => prev[teamCode] ? prev : { ...prev, [teamCode]: !activityByTeam[teamCode] });
     (async () => {
       try {
         const [ms, todayStats, feedItems] = await Promise.all([
@@ -152,22 +169,39 @@ function MainApp() {
           getTeamFeed(me.token, activeTeam.id, 30),
         ]);
         setMembers(ms);
-        // 첫 진입에 토큰/시간/lastSeen이 즉시 보이도록 activityByTeam 채움.
+        // 피드에서 사용자별 최근 UserPromptSubmit 첫 줄을 뽑아낸다 — 카드의 마지막 활동 표시용.
+        const latestPromptByUser = {};
+        for (const it of feedItems) {
+          if (it.eventKind === 'UserPromptSubmit' && it.promptFirstLine
+              && !latestPromptByUser[it.userId]) {
+            latestPromptByUser[it.userId] = {
+              promptFirstLine: it.promptFirstLine,
+              cliKind: it.cliKind ?? null,
+              occurredAt: it.occurredAt,
+            };
+          }
+        }
+        // 첫 진입에 토큰/시간/lastSeen + 마지막 프롬프트가 즉시 보이도록 activityByTeam 채움.
         // WSS 메시지가 도착하면 그 위에 덮어써서 실시간 갱신 유지.
         setActivityByTeam((prev) => {
           const existing = prev[teamCode] ?? {};
           const next = { ...existing };
           for (const s of todayStats) {
             const lastSeenMs = s.lastSeen ? Date.parse(s.lastSeen) : null;
+            const lp = latestPromptByUser[s.userId];
             next[s.userId] = {
               ...next[s.userId],
               todayTokens: s.todayTokens ?? 0,
               todayDurationSec: s.todayDurationSec ?? 0,
               lastSeen: lastSeenMs ?? next[s.userId]?.lastSeen ?? null,
+              // WSS로 더 최신 promptFirstLine을 이미 받았다면 보존, 아니면 피드에서 뽑은 걸 사용
+              promptFirstLine: next[s.userId]?.promptFirstLine ?? lp?.promptFirstLine ?? null,
+              cliKind: next[s.userId]?.cliKind ?? lp?.cliKind ?? null,
             };
           }
           return { ...prev, [teamCode]: next };
         });
+        setLoadingByTeam((prev) => ({ ...prev, [teamCode]: false }));
         // "최근에 뭐 했나" 피드를 DB에서 hydrate — 새로고침해도 사라지지 않음.
         // WSS 메시지로 들어오는 신규 항목은 prepend되어 자연스럽게 누적.
         setFeedByTeam((prev) => {
@@ -191,7 +225,10 @@ function MainApp() {
             .slice(0, 30);
           return { ...prev, [teamCode]: merged };
         });
-      } catch (e) { handleApiError(e); }
+      } catch (e) {
+        setLoadingByTeam((prev) => ({ ...prev, [teamCode]: false }));
+        handleApiError(e);
+      }
     })();
   }, [me, activeTeam]);
 
@@ -334,6 +371,7 @@ function MainApp() {
         <FriendGrid
           members={members}
           activity={activity}
+          loading={isLoadingTeam}
           myUserId={me.userId}
           onSelect={(member) => setSelectedMember(member)}
         />
@@ -369,7 +407,7 @@ function MainApp() {
           messages={chat}
           myUserId={me.userId}
           onClose={() => setChatOpen(false)}
-          onSend={(text) => teamClientRef.current?.sendChat(text)}
+          onSend={(payload) => teamClientRef.current?.sendChat(payload)}
         />
       )}
 
@@ -520,7 +558,7 @@ function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRenam
       {me && (
         <div className="header-actions" ref={userMenu.ref}>
           <button className="me-button" onClick={() => userMenu.setOpen((v) => !v)}>
-            <Avatar name={me.displayName} seed={me.userId} size={28} />
+            <Avatar name={me.displayName} seed={me.userId} size={28} url={me.avatarUrl} />
             <span className="me-name">{me.displayName}</span>
             <span className="caret">▾</span>
           </button>
@@ -789,7 +827,7 @@ function TeamSetup({ token, onTeamReady, onError, error }) {
   );
 }
 
-function FriendGrid({ members, activity, myUserId, onSelect }) {
+function FriendGrid({ members, activity, loading, myUserId, onSelect }) {
   if (members.length === 0) {
     return (
       <section className="grid-empty">
@@ -805,17 +843,27 @@ function FriendGrid({ members, activity, myUserId, onSelect }) {
         const tokens = a?.todayTokens ?? 0;
         const minutes = Math.round((a?.todayDurationSec ?? 0) / 60);
         const isMe = m.userId === myUserId;
+        const showSkeleton = loading && !a;
+        // 카드의 핵심 한 줄: 진행 중 작업 > 마지막 작업 > 빈 상태 메시지
+        const promptLine = a?.promptFirstLine
+          ? a.promptFirstLine
+          : active
+            ? '작업 중…'
+            : a?.lastSeen
+              ? '오늘 잠시 작업했어요. 클릭해서 활동 보기'
+              : '오늘은 아직 조용해요';
         return (
           <article
             key={m.userId}
-            className={`member-card ${active ? 'active' : 'idle'} clickable`}
+            className={`member-card ${active ? 'active' : 'idle'} clickable ${showSkeleton ? 'skeleton' : ''}`}
             role="button"
             tabIndex={0}
             onClick={() => onSelect?.(m)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect?.(m); }}
+            title="클릭해서 최근 활동 보기"
           >
             <header className="member-head">
-              <Avatar name={m.displayName} seed={m.userId} size={44} ring={active} />
+              <Avatar name={m.displayName} seed={m.userId} size={44} ring={active} url={m.avatarUrl} />
               <div className="member-meta">
                 <div className="member-name">
                   {m.displayName}
@@ -827,17 +875,22 @@ function FriendGrid({ members, activity, myUserId, onSelect }) {
                   {active ? '작업 중' : '쉬는 중'}
                 </div>
               </div>
+              <span className="card-chevron" aria-hidden="true">›</span>
             </header>
-            <p className="prompt">
-              {a?.promptFirstLine || (active ? '...' : '오늘은 아직 조용해요')}
+            <p className={`prompt ${a?.promptFirstLine ? '' : 'prompt-muted'}`}>
+              {showSkeleton ? <span className="skel-line" /> : promptLine}
             </p>
             <footer className="member-foot">
               <div className="stat">
-                <span className="stat-num">{tokens.toLocaleString()}</span>
+                {showSkeleton
+                  ? <span className="skel-num" />
+                  : <span className="stat-num">{tokens.toLocaleString()}</span>}
                 <span className="stat-label">토큰</span>
               </div>
               <div className="stat">
-                <span className="stat-num">{minutes}</span>
+                {showSkeleton
+                  ? <span className="skel-num" />
+                  : <span className="stat-num">{minutes}</span>}
                 <span className="stat-label">분</span>
               </div>
               {a?.toolName && (
@@ -941,38 +994,173 @@ function formatTime(iso) {
 
 function ChatDrawer({ team, messages, myUserId, onClose, onSend }) {
   const [draft, setDraft] = useState('');
+  // 첨부 이미지 상태: { file, previewUrl, status: 'pending'|'uploading'|'uploaded'|'failed', uploadedUrl, progress, error }
+  const [attachment, setAttachment] = useState(null);
+  const [lightbox, setLightbox] = useState(null); // 클릭한 이미지 url
+  const [dragOver, setDragOver] = useState(false);
+  // 스크롤 추적: 사용자가 위로 스크롤한 상태에서는 강제로 끌어내리지 않는다.
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [unseenCount, setUnseenCount] = useState(0);
   const listRef = useRef(null);
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const uploadTokenRef = useRef(null);
+  const isAtBottomRef = useRef(true);
+  const prevLenRef = useRef(messages.length);
 
-  // 새 메시지가 추가되면 맨 아래로 스크롤
-  useEffect(() => {
+  const scrollToBottom = (smooth = true) => {
     const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+  };
+
+  const onScrollList = () => {
+    const el = listRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const atBottom = distance < 80;
+    isAtBottomRef.current = atBottom;
+    setIsAtBottom(atBottom);
+    if (atBottom) setUnseenCount(0);
+  };
+
+  // 마운트 직후 — 기존 버퍼 메시지를 보고 즉시 맨 아래로 점프 (애니메이션 없이)
+  useEffect(() => {
+    scrollToBottom(false);
+    prevLenRef.current = messages.length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 메시지 추가 시: 본인이 보낸 거거나 이미 맨 아래면 자동 스크롤. 위로 올려서 읽는 중이면 그대로 두고 unseen 카운트 ↑
+  useEffect(() => {
+    const prev = prevLenRef.current;
+    prevLenRef.current = messages.length;
+    if (messages.length <= prev) return; // 새 메시지 없음
+    const last = messages[messages.length - 1];
+    const isMine = last && last.userId === myUserId;
+    if (isAtBottomRef.current || isMine) {
+      scrollToBottom(true);
+      setUnseenCount(0);
+    } else {
+      setUnseenCount((n) => n + (messages.length - prev));
+    }
+  }, [messages.length, myUserId]);
 
   // 열리면 입력창에 포커스
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  // ESC로 닫기
+  // ESC: 라이트박스 우선 닫기 → 그 다음 드로어
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (lightbox) setLightbox(null);
+      else onClose();
+    };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, lightbox]);
+
+  // 미리보기 URL revoke (메모리 누수 방지)
+  useEffect(() => {
+    return () => {
+      if (attachment?.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+    };
+  }, [attachment?.previewUrl]);
+
+  // 업로드 완료되면 입력창에 포커스 — Enter로 즉시 송신할 수 있게
+  useEffect(() => {
+    if (attachment?.status === 'uploaded') inputRef.current?.focus();
+  }, [attachment?.status]);
+
+  // 첨부 시점에 즉시 업로드 시작 — 사용자는 그동안 캡션 작성 가능.
+  // 송신 전에 끝나면 바로 보내기, 아직 업로드 중이면 송신 버튼이 disable.
+  const acceptFile = async (file) => {
+    if (!file || !file.type?.startsWith('image/')) return;
+    if (attachment?.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+    const previewUrl = URL.createObjectURL(file);
+    // 업로드 토큰 — 새 첨부가 들어왔을 때 이전 업로드 응답을 무시하기 위함
+    const myToken = Symbol('upload');
+    uploadTokenRef.current = myToken;
+    setAttachment({ file, previewUrl, status: 'uploading', progress: 0 });
+    try {
+      const { url } = await uploadToImgBb(file, {
+        onProgress: (p) => {
+          if (uploadTokenRef.current !== myToken) return;
+          setAttachment((a) => a && a.file === file ? { ...a, progress: p } : a);
+        },
+      });
+      if (uploadTokenRef.current !== myToken) return; // 사용자가 다른 파일로 교체
+      setAttachment((a) => a && a.file === file
+        ? { ...a, status: 'uploaded', uploadedUrl: url, progress: 1 }
+        : a);
+    } catch (err) {
+      if (uploadTokenRef.current !== myToken) return;
+      const msg = err instanceof ImgBbError ? err.message : '업로드 실패';
+      setAttachment((a) => a && a.file === file ? { ...a, status: 'failed', error: msg } : a);
+    }
+  };
+
+  const onPaste = (e) => {
+    const item = Array.from(e.clipboardData?.items ?? []).find((it) => it.type.startsWith('image/'));
+    if (!item) return;
+    const file = item.getAsFile();
+    if (file) {
+      e.preventDefault();
+      acceptFile(file);
+    }
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) acceptFile(file);
+  };
+
+  const removeAttachment = () => {
+    if (attachment?.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+    setAttachment(null);
+  };
 
   const submit = () => {
     const t = draft.trim();
-    if (!t) return;
-    const ok = onSend?.(t);
-    if (ok !== false) setDraft('');
+    if (!t && !attachment) return;
+    // 첨부가 있는데 아직 업로드 안 끝났으면 송신 거절 (버튼도 disabled)
+    if (attachment && attachment.status !== 'uploaded') return;
+    const imageUrl = attachment?.uploadedUrl ?? null;
+    const ok = onSend?.({ text: t || null, imageUrl });
+    if (ok !== false) {
+      setDraft('');
+      removeAttachment();
+    }
+  };
+
+  const retryUpload = () => {
+    if (!attachment?.file) return;
+    acceptFile(attachment.file);
+  };
+
+  const onKeyDown = (e) => {
+    // Enter = 송신, Shift+Enter는 일반 input이라 줄바꿈 없음 — 그냥 Enter만
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault();
+      submit();
+    }
   };
 
   return (
     <>
       <div className="drawer-backdrop" onClick={onClose} />
-      <aside className="drawer chat-drawer" role="dialog" aria-label={`${team.name} 팀 채팅`}>
+      <aside
+        className={`drawer chat-drawer ${dragOver ? 'drag-over' : ''}`}
+        role="dialog"
+        aria-label={`${team.name} 팀 채팅`}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+      >
         <header className="drawer-head">
           <div className="drawer-meta">
             <div className="drawer-name">{team.name} · 팀 채팅</div>
@@ -980,9 +1168,9 @@ function ChatDrawer({ team, messages, myUserId, onClose, onSend }) {
           </div>
         </header>
 
-        <div className="chat-list" ref={listRef}>
+        <div className="chat-list" ref={listRef} onScroll={onScrollList}>
           {messages.length === 0 && (
-            <div className="drawer-empty">첫 메시지를 남겨보세요.</div>
+            <div className="drawer-empty">첫 메시지를 남겨보세요. 이미지는 붙여넣기/드래그/📎 버튼.</div>
           )}
           {messages.map((m, idx) => {
             const isMine = m.userId === myUserId;
@@ -1004,28 +1192,100 @@ function ChatDrawer({ team, messages, myUserId, onClose, onSend }) {
                       <span className="chat-time">{formatTime(m.sentAt)}</span>
                     </div>
                   )}
-                  <div className="chat-bubble">{m.text}</div>
+                  {m.imageUrl && (
+                    <button
+                      type="button"
+                      className="chat-image-btn"
+                      onClick={() => setLightbox(m.imageUrl)}
+                      aria-label="이미지 크게 보기"
+                    >
+                      <img src={m.imageUrl} alt="" loading="lazy" />
+                    </button>
+                  )}
+                  {m.text && <div className="chat-bubble">{m.text}</div>}
                 </div>
               </div>
             );
           })}
         </div>
 
+        {!isAtBottom && (
+          <button
+            type="button"
+            className={`chat-scroll-bottom ${unseenCount > 0 ? 'has-unseen' : ''}`}
+            onClick={() => { scrollToBottom(true); setUnseenCount(0); }}
+            aria-label="맨 아래로"
+          >
+            {unseenCount > 0 ? `↓ 새 메시지 ${unseenCount}` : '↓'}
+          </button>
+        )}
+
+        {attachment && (
+          <div className={`chat-attachment status-${attachment.status}`}>
+            <img src={attachment.previewUrl} alt="첨부 이미지" />
+            <div className="chat-attachment-meta">
+              {attachment.status === 'uploading' && (
+                <span>업로드 중… {Math.round((attachment.progress ?? 0) * 100)}%</span>
+              )}
+              {attachment.status === 'failed' && (
+                <>
+                  <span className="error">{attachment.error}</span>
+                  <button type="button" className="chat-attachment-retry" onClick={retryUpload}>
+                    다시 시도
+                  </button>
+                </>
+              )}
+              {attachment.status === 'uploaded' && <span>업로드 완료 · 보내기로 전송</span>}
+            </div>
+            <button
+              type="button"
+              className="chat-attachment-remove"
+              onClick={removeAttachment}
+              aria-label="첨부 제거"
+            >×</button>
+          </div>
+        )}
+
         <form
           className="chat-input"
           onSubmit={(e) => { e.preventDefault(); submit(); }}
         >
+          <button
+            type="button"
+            className="chat-attach-btn"
+            onClick={() => fileInputRef.current?.click()}
+            title="이미지 첨부"
+            aria-label="이미지 첨부"
+          >📎</button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={(e) => { acceptFile(e.target.files?.[0]); e.target.value = ''; }}
+          />
           <input
             ref={inputRef}
             type="text"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="메시지를 입력하세요"
+            onPaste={onPaste}
+            onKeyDown={onKeyDown}
+            placeholder="메시지 입력 · 붙여넣기로 이미지 첨부"
             maxLength={1000}
           />
-          <button type="submit" disabled={!draft.trim()}>보내기</button>
+          <button
+            type="submit"
+            disabled={(!draft.trim() && !attachment) || attachment?.status === 'uploading'}
+          >보내기</button>
         </form>
       </aside>
+
+      {lightbox && (
+        <div className="chat-lightbox" onClick={() => setLightbox(null)} role="dialog" aria-label="이미지 보기">
+          <img src={lightbox} alt="" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </>
   );
 }

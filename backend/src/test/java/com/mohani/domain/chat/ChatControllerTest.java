@@ -65,28 +65,79 @@ class ChatControllerTest {
     }
 
     @Test
-    void member_sends_broadcastsToTopic() {
-        controller.send("ABC123", new ChatInbound("안녕하세요"), memberPrincipal);
+    void member_sendsText_broadcastsToTopic() {
+        controller.send("ABC123", new ChatInbound("안녕하세요", null), memberPrincipal);
 
         ArgumentCaptor<ChatMessage> msg = ArgumentCaptor.forClass(ChatMessage.class);
         verify(broker, times(1)).convertAndSend(eq("/topic/team/ABC123/chat"), msg.capture());
         assertThat(msg.getValue().userId()).isEqualTo(7L);
         assertThat(msg.getValue().displayName()).isEqualTo("테스터");
         assertThat(msg.getValue().text()).isEqualTo("안녕하세요");
+        assertThat(msg.getValue().imageUrl()).isNull();
         assertThat(msg.getValue().sentAt()).isNotNull();
     }
 
     @Test
-    void nonMember_send_isDropped() {
-        controller.send("ABC123", new ChatInbound("끼어들기"), nonMemberPrincipal);
+    void member_sendsImageOnly_broadcasts() {
+        String url = "https://i.ibb.co/abcd1234/x.png";
+        controller.send("ABC123", new ChatInbound(null, url), memberPrincipal);
+
+        ArgumentCaptor<ChatMessage> msg = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(broker).convertAndSend(eq("/topic/team/ABC123/chat"), msg.capture());
+        assertThat(msg.getValue().text()).isNull();
+        assertThat(msg.getValue().imageUrl()).isEqualTo(url);
+    }
+
+    @Test
+    void member_sendsTextAndImage_broadcastsBoth() {
+        String url = "https://i.ibb.co/abcd1234/x.png";
+        controller.send("ABC123", new ChatInbound("스크린샷", url), memberPrincipal);
+
+        ArgumentCaptor<ChatMessage> msg = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(broker).convertAndSend(eq("/topic/team/ABC123/chat"), msg.capture());
+        assertThat(msg.getValue().text()).isEqualTo("스크린샷");
+        assertThat(msg.getValue().imageUrl()).isEqualTo(url);
+    }
+
+    @Test
+    void nonImgurHost_isStrippedAndDroppedIfNoText() {
+        controller.send("ABC123", new ChatInbound(null, "https://evil.example.com/x.png"), memberPrincipal);
         verify(broker, never()).convertAndSend(any(String.class), any(Object.class));
     }
 
     @Test
-    void blankOrNullText_isDropped() {
-        controller.send("ABC123", new ChatInbound("   "), memberPrincipal);
-        controller.send("ABC123", new ChatInbound(""), memberPrincipal);
-        controller.send("ABC123", new ChatInbound(null), memberPrincipal);
+    void httpScheme_isRejected() {
+        controller.send("ABC123", new ChatInbound(null, "http://i.ibb.co/abc/x.png"), memberPrincipal);
+        verify(broker, never()).convertAndSend(any(String.class), any(Object.class));
+    }
+
+    @Test
+    void malformedUrl_isRejected() {
+        controller.send("ABC123", new ChatInbound(null, "not-a-url"), memberPrincipal);
+        verify(broker, never()).convertAndSend(any(String.class), any(Object.class));
+    }
+
+    @Test
+    void textWithBadImageUrl_textStillBroadcasts_imageStripped() {
+        controller.send("ABC123", new ChatInbound("hi", "ftp://x"), memberPrincipal);
+
+        ArgumentCaptor<ChatMessage> msg = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(broker).convertAndSend(eq("/topic/team/ABC123/chat"), msg.capture());
+        assertThat(msg.getValue().text()).isEqualTo("hi");
+        assertThat(msg.getValue().imageUrl()).isNull();
+    }
+
+    @Test
+    void nonMember_send_isDropped() {
+        controller.send("ABC123", new ChatInbound("끼어들기", null), nonMemberPrincipal);
+        verify(broker, never()).convertAndSend(any(String.class), any(Object.class));
+    }
+
+    @Test
+    void allBlankOrNull_isDropped() {
+        controller.send("ABC123", new ChatInbound("   ", "   "), memberPrincipal);
+        controller.send("ABC123", new ChatInbound("", ""), memberPrincipal);
+        controller.send("ABC123", new ChatInbound(null, null), memberPrincipal);
         controller.send("ABC123", null, memberPrincipal);
         verify(broker, never()).convertAndSend(any(String.class), any(Object.class));
     }
@@ -94,7 +145,7 @@ class ChatControllerTest {
     @Test
     void overlongText_isTruncatedTo1000() {
         String long1500 = "가".repeat(1500);
-        controller.send("ABC123", new ChatInbound(long1500), memberPrincipal);
+        controller.send("ABC123", new ChatInbound(long1500, null), memberPrincipal);
 
         ArgumentCaptor<ChatMessage> msg = ArgumentCaptor.forClass(ChatMessage.class);
         verify(broker).convertAndSend(eq("/topic/team/ABC123/chat"), msg.capture());
@@ -103,13 +154,13 @@ class ChatControllerTest {
 
     @Test
     void unknownTeam_isDropped() {
-        controller.send("NOPE99", new ChatInbound("hi"), memberPrincipal);
+        controller.send("NOPE99", new ChatInbound("hi", null), memberPrincipal);
         verify(broker, never()).convertAndSend(any(String.class), any(Object.class));
     }
 
     @Test
     void unauthenticatedPrincipal_isDropped() {
-        controller.send("ABC123", new ChatInbound("hi"), null);
+        controller.send("ABC123", new ChatInbound("hi", null), null);
         verify(broker, never()).convertAndSend(any(String.class), any(Object.class));
     }
 

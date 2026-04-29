@@ -6,7 +6,9 @@ import java.time.OffsetDateTime;
 public record ChatMessage(
     long userId,
     String displayName,
+    String avatarUrl,
     String text,
+    String imageUrl,
     OffsetDateTime sentAt
 ) {
 }
