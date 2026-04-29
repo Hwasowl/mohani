@@ -9,7 +9,17 @@ import org.springframework.data.repository.query.Param;
 
 public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> {
 
-    List<ActivityLog> findByTeamIdAndUserIdOrderByOccurredAtDesc(Long teamId, Long userId, Pageable pageable);
+    // 멤버 활동 드로어 — 질문이나 답변 둘 중 하나라도 있는 의미 있는 row만 반환.
+    @Query("""
+        SELECT a FROM ActivityLog a
+        WHERE a.teamId = :teamId AND a.userId = :userId
+          AND ( (a.promptFirstLine IS NOT NULL AND a.promptFirstLine <> '')
+             OR (a.assistantPreview IS NOT NULL AND a.assistantPreview <> '') )
+        ORDER BY a.occurredAt DESC
+    """)
+    List<ActivityLog> findByTeamIdAndUserIdOrderByOccurredAtDesc(@Param("teamId") Long teamId,
+                                                                 @Param("userId") Long userId,
+                                                                 Pageable pageable);
 
     // turn 매칭용 — 같은 (user, cli, team) 의 가장 최근 미응답(UserPromptSubmit) row 찾기.
     // Stop이 도착하면 이 row에 assistant 정보를 합친다(같은 row update).

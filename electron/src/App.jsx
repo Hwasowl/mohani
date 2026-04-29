@@ -1142,9 +1142,11 @@ function MemberActivityDrawer({ token, team, member, stats, onClose, onError }) 
           )}
           {items && items.length > 0 && (
             <ul className="drawer-list">
-              {items.map((it) => {
+              {items
+                .filter((it) => (it.promptFirstLine && it.promptFirstLine.length > 0)
+                              || (it.assistantPreview && it.assistantPreview.length > 0))
+                .map((it) => {
                 const open = expandedId === it.id;
-                const hasAnswer = !!(it.assistantPreview || it.assistantFull);
                 return (
                   <li
                     key={it.id}
@@ -1154,9 +1156,6 @@ function MemberActivityDrawer({ token, team, member, stats, onClose, onError }) 
                     <div className="drawer-item-head">
                       <span className="drawer-item-time">{formatTime(it.occurredAt)}</span>
                       <CliBadge kind={it.cliKind} />
-                      {!hasAnswer && it.eventKind === 'UserPromptSubmit' && (
-                        <span className="turn-pending">응답 대기 중</span>
-                      )}
                       <span className="drawer-caret">{open ? '▾' : '▸'}</span>
                     </div>
                     {it.promptFirstLine && (
@@ -1621,9 +1620,6 @@ function FeedPanel({ feed, width, onResize, onClose }) {
                     <div className={`feed-answer ${open ? 'wrap' : ''}`}>
                       <span className="turn-label a">A</span> {f.assistantPreview}
                     </div>
-                  )}
-                  {!f.assistantPreview && f.eventKind === 'UserPromptSubmit' && (
-                    <div className="feed-pending">응답 대기 중…</div>
                   )}
                   {open && (
                     <div className="feed-detail">
