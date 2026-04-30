@@ -49,5 +49,8 @@ release/
 agent/ui/
 agent/*.tgz
 
+# NSIS 빌드 산출물
+installer/Mohani-Setup.exe
+
 # Fly.io (안 쓸 예정)
 backend/fly.toml
