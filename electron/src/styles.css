@@ -1103,15 +1103,34 @@ button { font-family: inherit; }
   text-align: center;
 }
 .chat-standalone-head {
+  -webkit-app-region: drag;       /* 헤더 끌어 창 이동 */
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  gap: 12px;
+  /* 우측 138px = Windows titleBarOverlay 의 minimize/maximize/close 영역 */
+  padding: 0 148px 0 16px;
+  height: 40px;
+  flex-shrink: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.03) 0%,
+    rgba(255, 255, 255, 0) 100%
+  );
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: 13px;
+  color: #f1f5f9;
+  user-select: none;
 }
-.chat-standalone-hint { font-size: 11px; opacity: 0.55; font-weight: 400; }
+.chat-standalone-head > * { -webkit-app-region: no-drag; }   /* 글자 셀렉/클릭은 가능하게 */
+.chat-standalone-hint {
+  font-size: 11px;
+  opacity: 0.55;
+  font-weight: 400;
+  color: #cbd5e1;
+  white-space: nowrap;
+}
 
 /* ── Turn 종류 배지 (CLI 배지와 동일 스타일 톤) ── */
 .kind-badge {

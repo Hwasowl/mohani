@@ -106,6 +106,7 @@ function createChatWindow() {
   const { workArea } = screen.getPrimaryDisplay();
   const w = 380;
   const h = 600;
+  const isMac = process.platform === 'darwin';
   chatWindow = new BrowserWindow({
     width: w,
     height: h,
@@ -115,6 +116,12 @@ function createChatWindow() {
     minHeight: 360,
     title: '모하니 채팅',
     backgroundColor: '#0b1220',
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    titleBarOverlay: !isMac ? {
+      color: '#0b1220',
+      symbolColor: '#cbd5e1',
+      height: 36,
+    } : undefined,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
