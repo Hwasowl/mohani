@@ -1,3 +1,6 @@
-﻿' Mohani 무콘솔 실행 스텁 — Mohani.exe 가 wscript로 호출.
-' Run 두 번째 인자 0 = 윈도우 숨김. 세 번째 False = 자식 종료 대기 안 함.
-CreateObject("WScript.Shell").Run "cmd /c mohani start", 0, False
+' Mohani 무콘솔 실행 — Mohani.exe / Mohani-Setup.exe 가 wscript로 호출.
+' powershell.exe를 -WindowStyle Hidden 으로 띄워 mohani-run.ps1 실행.
+Dim sh, ps1
+Set sh = CreateObject("WScript.Shell")
+ps1 = Replace(WScript.ScriptFullName, "launch.vbs", "mohani-run.ps1")
+sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & ps1 & """", 0, False
