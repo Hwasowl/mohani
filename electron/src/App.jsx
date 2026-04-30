@@ -352,6 +352,18 @@ function MainApp() {
             },
           };
         });
+        // 타이핑도 활동 신호 — 온라인으로 마킹
+        setActivityByTeam((prev) => {
+          const teamMap = prev[teamCode] ?? {};
+          const cur = teamMap[evt.userId] ?? {};
+          return {
+            ...prev,
+            [teamCode]: {
+              ...teamMap,
+              [evt.userId]: { ...cur, lastSeen: Date.now(), displayName: evt.displayName ?? cur.displayName },
+            },
+          };
+        });
       },
       onChat: (msg) => {
         // 메시지가 도착한 사용자는 더 이상 타이핑 중 아님 — 즉시 정리
@@ -361,6 +373,20 @@ function MainApp() {
           const { [msg.userId]: _, ...rest } = map;
           return { ...prev, [teamCode]: rest };
         });
+        // 채팅도 활동 신호 — 발신자를 온라인으로 마킹 (CLI 안 써도 채팅으로 살아있음)
+        if (msg.userId) {
+          setActivityByTeam((prev) => {
+            const teamMap = prev[teamCode] ?? {};
+            const cur = teamMap[msg.userId] ?? {};
+            return {
+              ...prev,
+              [teamCode]: {
+                ...teamMap,
+                [msg.userId]: { ...cur, lastSeen: Date.now(), displayName: msg.displayName ?? cur.displayName },
+              },
+            };
+          });
+        }
         // 메시지에 안정 키 부여 (sentAt+userId+text도 가능하지만 충돌 가능 — Date.now() 보강)
         const item = { ...msg, _key: `${msg.userId}-${msg.sentAt}-${Math.random().toString(36).slice(2, 6)}` };
         setChatByTeam((prev) => {
