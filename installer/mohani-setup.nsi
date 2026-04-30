@@ -1,11 +1,11 @@
 ﻿; Mohani Setup (Mohani-Setup.exe) — 친구가 한 번만 받아 실행하는 설치 프로그램
 ; 더블클릭 시:
 ;   1. Node.js 20+ 검사
-;   2. 기존 mohani 프로세스 종료 (파일 락 방지)
+;   2. 기존 mohani 프로세스 모두 정리 (kill-mohani.ps1)
 ;   3. npm install -g mohani@latest
-;   4. Mohani.exe + launch.vbs 를 INSTDIR에 배치
+;   4. Mohani.exe + launch.vbs + kill-mohani.ps1 을 INSTDIR에 배치
 ;   5. 시작메뉴 / 바탕화면 단축키 생성 → Mohani.exe 가리킴
-;   6. Mohani.exe 즉시 실행 (이후부턴 단축키로 실행)
+;   6. launch.vbs 직접 실행 (이번엔 중복 npm install 회피)
 ;
 ; 빌드 전 mohani-launcher.nsi 를 먼저 빌드해서 Mohani.exe 가 같은 디렉토리에 있어야 함.
 
@@ -50,13 +50,13 @@ Section "Install"
   ${EndIf}
   DetailPrint "Node.js 확인됨."
 
-  ; ─── 2. 기존 mohani / electron 프로세스 종료 ──────────────────
+  ; ─── 2. 기존 mohani 프로세스 정리 (kill-mohani.ps1) ──────────
   DetailPrint "기존 Mohani 프로세스 정리 중..."
-  nsExec::ExecToLog 'cmd.exe /c taskkill /F /IM electron.exe /FI "WINDOWTITLE eq Mohani*" /T'
-  nsExec::ExecToLog 'cmd.exe /c taskkill /F /IM Mohani.exe /T'
+  File "kill-mohani.ps1"
+  nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\kill-mohani.ps1"'
 
   ; ─── 3. npm 으로 mohani 최신 버전 설치 ─────────────────────────
-  DetailPrint "Mohani 최신 버전 설치 중..."
+  DetailPrint "Mohani 최신 버전 설치 중... (이미 최신이면 즉시 통과)"
   nsExec::ExecToStack 'cmd.exe /c npm install -g mohani@latest 2^>^&1'
   Pop $0
   Pop $1
@@ -76,9 +76,9 @@ Section "Install"
   CreateShortcut "$SMPROGRAMS\Mohani.lnk" "$INSTDIR\Mohani.exe" "" "$INSTDIR\Mohani.exe" 0
   CreateShortcut "$DESKTOP\Mohani.lnk" "$INSTDIR\Mohani.exe" "" "$INSTDIR\Mohani.exe" 0
 
-  ; ─── 6. Mohani.exe 즉시 실행 ──────────────────────────────────
+  ; ─── 6. launch.vbs 직접 실행 (Mohani.exe 우회 — 방금 install했으니 중복 npm 회피) ─
   DetailPrint "Mohani 실행..."
-  Exec '"$INSTDIR\Mohani.exe"'
+  Exec '"$SYSDIR\wscript.exe" "$INSTDIR\launch.vbs"'
 
   Sleep 800
 SectionEnd
