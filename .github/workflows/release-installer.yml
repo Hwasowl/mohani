@@ -24,15 +24,21 @@ jobs:
       - name: Install NSIS
         run: sudo apt-get update && sudo apt-get install -y nsis
 
-      - name: Build Mohani-Setup.exe
+      - name: Build Mohani.exe (silent launcher)
         working-directory: installer
-        run: makensis mohani.nsi
+        run: makensis mohani-launcher.nsi
 
-      - name: Upload artifact
+      - name: Build Mohani-Setup.exe (installer with embedded launcher)
+        working-directory: installer
+        run: makensis mohani-setup.nsi
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mohani-Setup
-          path: installer/Mohani-Setup.exe
+          name: Mohani-installer
+          path: |
+            installer/Mohani-Setup.exe
+            installer/Mohani.exe
 
       - name: Attach to release
         uses: softprops/action-gh-release@v2
