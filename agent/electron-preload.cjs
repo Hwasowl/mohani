@@ -8,4 +8,5 @@ contextBridge.exposeInMainWorld('mohaniIpc', {
   toggleChat: () => ipcRenderer.invoke('mohani:toggle-chat'),
   isChat: () => location.hash === '#chat',
   openMainWindow: () => ipcRenderer.invoke('mohani:open-main'),
+  flashFrame: (on) => ipcRenderer.invoke('mohani:flash-frame', !!on),
 });

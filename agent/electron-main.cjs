@@ -94,6 +94,14 @@ ipcMain.handle('mohani:open-main', () => {
   return { ok: true };
 });
 
+// 새 채팅 도착 시 작업표시줄 점멸 — 렌더러가 호출.
+ipcMain.handle('mohani:flash-frame', (e, on) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.isDestroyed()) return;
+  if (on && win.isFocused()) return;
+  win.flashFrame(!!on);
+});
+
 function createChatWindow() {
   if (chatWindow && !chatWindow.isDestroyed()) {
     chatWindow.show();
@@ -112,6 +120,12 @@ function createChatWindow() {
     minHeight: 360,
     title: '모하니 채팅',
     backgroundColor: '#0b1220',
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    titleBarOverlay: !isMac ? {
+      color: '#0b1220',
+      symbolColor: '#cbd5e1',
+      height: 36,
+    } : undefined,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
