@@ -30,13 +30,13 @@ graph TB
     CC[Claude Code]
 
     subgraph Client["Desktop Client"]
-        Hook[Hook Bridge<br/>~/.claude/settings.json]
+        Hook[Hook Bridge<br/>/.claude/settings.json]
         Daemon[Local Daemon<br/>:24555]
         Renderer[Electron Renderer<br/>Vite Bundle]
     end
 
     subgraph Cloud["Cloud (Render)"]
-        Server[Application Server<br/>Spring Boot · REST + STOMP · :8080]
+        Server[Application Server<br/>Spring Boot, REST + STOMP, :8080]
         PG[(PostgreSQL)]
         Redis[(Redis)]
     end
