@@ -1149,10 +1149,8 @@ button { font-family: inherit; }
 .chat-members-list {
   display: flex;
   gap: 5px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: thin;
-  padding-bottom: 2px;
+  flex-wrap: wrap;        /* 멤버 많으면 줄바꿈 — 스크롤바 노출 방지 */
+  overflow: hidden;
 }
 .chat-member-chip {
   position: relative;

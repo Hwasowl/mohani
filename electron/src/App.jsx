@@ -1242,13 +1242,13 @@ function ChatDrawer({ team, messages, myUserId, members = [], activity = {}, typ
         <header className="drawer-head">
           <div className="drawer-meta">
             <div className="drawer-name">
-              {team.name} · 팀 채팅
+              <span className="drawer-name-text">{team.name} · 팀 채팅</span>
               {window.mohaniIpc?.toggleChat && (
                 <button
                   className="chat-popout-btn"
                   onClick={() => { window.mohaniIpc.toggleChat(); onClose(); }}
                   title="별도 창으로 띄우기"
-                >⤢</button>
+                >⤢ 팝업</button>
               )}
             </div>
             <ChatMembersStrip members={members} activity={activity} />
