@@ -858,6 +858,8 @@ button { font-family: inherit; }
   display: flex;
   flex-direction: column;
 }
+.chat-drawer .drawer-head { padding: 12px 18px 10px; align-items: flex-start; }
+.chat-drawer .drawer-name { display: flex; align-items: center; flex-wrap: wrap; }
 .chat-hint { font-size: 11px; opacity: 0.6; margin-top: 2px; }
 
 .chat-list {
@@ -1075,14 +1077,15 @@ button { font-family: inherit; }
 /* 팝업 띄우기 버튼 (드로어 헤더) */
 .chat-popout-btn {
   margin-left: 8px;
-  padding: 2px 8px;
+  padding: 1px 6px;
   background: rgba(99, 102, 241, 0.15);
   border: 1px solid rgba(99, 102, 241, 0.3);
   color: #c7d2fe;
-  font-size: 11px;
+  font-size: 12px;
   border-radius: 4px;
   cursor: pointer;
   transition: background 0.12s;
+  vertical-align: middle;
 }
 .chat-popout-btn:hover { background: rgba(99, 102, 241, 0.3); }
 
@@ -1103,14 +1106,12 @@ button { font-family: inherit; }
   text-align: center;
 }
 .chat-standalone-head {
-  -webkit-app-region: drag;       /* 헤더 끌어 창 이동 */
+  -webkit-app-region: drag;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  /* 우측 138px = Windows titleBarOverlay 의 minimize/maximize/close 영역 */
-  padding: 0 148px 0 16px;
-  height: 40px;
+  flex-direction: column;
+  gap: 6px;
+  /* 우측 패딩 = Windows titleBarOverlay min/max/close 영역 회피 */
+  padding: 8px 148px 8px 16px;
   flex-shrink: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(
@@ -1118,18 +1119,56 @@ button { font-family: inherit; }
     rgba(255, 255, 255, 0.03) 0%,
     rgba(255, 255, 255, 0) 100%
   );
-  font-weight: 600;
-  font-size: 13px;
-  color: #f1f5f9;
   user-select: none;
 }
-.chat-standalone-head > * { -webkit-app-region: no-drag; }   /* 글자 셀렉/클릭은 가능하게 */
-.chat-standalone-hint {
+.chat-standalone-head > * { -webkit-app-region: no-drag; }
+.chat-standalone-title { font-size: 13px; font-weight: 600; color: #f1f5f9; }
+
+/* 채팅 멤버 스트립 — drawer/standalone 양쪽에서 공유 */
+.chat-members {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.chat-members-summary {
+  display: flex;
+  gap: 10px;
   font-size: 11px;
-  opacity: 0.55;
-  font-weight: 400;
-  color: #cbd5e1;
-  white-space: nowrap;
+  color: #94a3b8;
+  align-items: center;
+}
+.chat-members-count { color: #cbd5e1; font-weight: 500; }
+.chat-members-online { display: inline-flex; align-items: center; gap: 4px; }
+.chat-members-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.6);
+}
+.chat-members-list {
+  display: flex;
+  gap: 5px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 2px;
+}
+.chat-member-chip {
+  position: relative;
+  width: 22px; height: 22px;
+  flex-shrink: 0;
+  cursor: default;
+  transition: opacity 0.15s;
+}
+.chat-member-chip.offline { opacity: 0.42; filter: grayscale(0.5); }
+.chat-member-online-dot {
+  position: absolute;
+  bottom: -1px; right: -1px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  border: 2px solid var(--bg-0);
 }
 
 /* ── Turn 종류 배지 (CLI 배지와 동일 스타일 톤) ── */

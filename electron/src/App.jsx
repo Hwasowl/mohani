@@ -166,6 +166,13 @@ function MainApp() {
     return () => clearInterval(id);
   }, []);
 
+  // 창에 포커스 돌아오면 작업표시줄 점멸 자동 중지
+  useEffect(() => {
+    const stop = () => window.mohaniIpc?.flashFrame?.(false);
+    window.addEventListener('focus', stop);
+    return () => window.removeEventListener('focus', stop);
+  }, []);
+
   // 백엔드 토큰이 만료/무효(예: docker reset으로 user 사라짐) → 자동으로 세션 초기화
   function handleApiError(e) {
     if (e?.status === 401) {
@@ -369,6 +376,10 @@ function MainApp() {
         if (!isMine && !isVisible) {
           setUnreadByTeam((prev) => ({ ...prev, [teamCode]: (prev[teamCode] ?? 0) + 1 }));
         }
+        // 창이 포커스 상태가 아니면 작업표시줄 점멸 (Windows: flashFrame)
+        if (!isMine && !document.hasFocus()) {
+          window.mohaniIpc?.flashFrame?.(true);
+        }
       },
     });
     teamClientRef.current = client;
@@ -493,6 +504,8 @@ function MainApp() {
           team={activeTeam}
           messages={chat}
           myUserId={me.userId}
+          members={members}
+          activity={activity}
           typingNames={typingNames}
           onClose={() => setChatOpen(false)}
           onSend={(payload) => teamClientRef.current?.sendChat(payload)}
@@ -1213,7 +1226,7 @@ function formatTime(iso) {
   return d.toLocaleDateString();
 }
 
-function ChatDrawer({ team, messages, myUserId, typingNames = [], onClose, onSend, onTyping }) {
+function ChatDrawer({ team, messages, myUserId, members = [], activity = {}, typingNames = [], onClose, onSend, onTyping }) {
   // ESC: 라이트박스 우선 닫기 → 그 다음 드로어
   // (라이트박스 상태는 ChatPanelBody가 들고 있음 — keydown은 거기서 처리)
   useEffect(() => {
@@ -1228,17 +1241,17 @@ function ChatDrawer({ team, messages, myUserId, typingNames = [], onClose, onSen
       <aside className="drawer chat-drawer" role="dialog" aria-label={`${team.name} 팀 채팅`}>
         <header className="drawer-head">
           <div className="drawer-meta">
-            <div className="drawer-name">{team.name} · 팀 채팅</div>
-            <div className="drawer-stats chat-hint">
-              새로고침/팀 변경 시 사라져요 · ESC로 닫기
+            <div className="drawer-name">
+              {team.name} · 팀 채팅
               {window.mohaniIpc?.toggleChat && (
                 <button
                   className="chat-popout-btn"
                   onClick={() => { window.mohaniIpc.toggleChat(); onClose(); }}
                   title="별도 창으로 띄우기"
-                >⤢ 팝업</button>
+                >⤢</button>
               )}
             </div>
+            <ChatMembersStrip members={members} activity={activity} />
           </div>
         </header>
         <ChatPanelBody
@@ -1250,6 +1263,44 @@ function ChatDrawer({ team, messages, myUserId, typingNames = [], onClose, onSen
         />
       </aside>
     </>
+  );
+}
+
+// 5분 이내 활동(activity[userId].lastSeen)이 있으면 온라인으로 간주.
+function isOnlineMember(userId, activity) {
+  const a = activity?.[userId];
+  if (!a?.lastSeen) return false;
+  return Date.now() - a.lastSeen < 5 * 60 * 1000;
+}
+
+function ChatMembersStrip({ members, activity }) {
+  if (!members || members.length === 0) return null;
+  const onlineCount = members.reduce((n, m) => n + (isOnlineMember(m.userId, activity) ? 1 : 0), 0);
+  return (
+    <div className="chat-members">
+      <div className="chat-members-summary">
+        <span className="chat-members-count">{members.length}명</span>
+        <span className="chat-members-online">
+          <span className="chat-members-dot" /> {onlineCount} 온라인
+        </span>
+      </div>
+      <div className="chat-members-list" role="list">
+        {members.map((m) => {
+          const online = isOnlineMember(m.userId, activity);
+          return (
+            <div
+              key={m.userId}
+              role="listitem"
+              className={`chat-member-chip ${online ? 'online' : 'offline'}`}
+              title={`${m.displayName}${online ? ' · 온라인' : ' · 오프라인'}`}
+            >
+              <Avatar name={m.displayName} seed={m.userId} size={22} url={m.avatarUrl} />
+              {online && <span className="chat-member-online-dot" />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -1446,7 +1497,15 @@ function ChatPanelBody({ messages, myUserId, typingNames = [], onSend, onTyping 
                       onClick={() => setLightbox(m.imageUrl)}
                       aria-label="이미지 크게 보기"
                     >
-                      <img src={m.imageUrl} alt="" loading="lazy" />
+                      <img
+                        src={m.imageUrl}
+                        alt=""
+                        loading="lazy"
+                        onLoad={() => {
+                          // 이미지가 늦게 로드되면 채팅 말풍선 높이만큼만 스크롤됐던 문제 보정
+                          if (isAtBottomRef.current) scrollToBottom(false);
+                        }}
+                      />
                     </button>
                   )}
                   {m.text && <div className="chat-bubble">{m.text}</div>}
@@ -1657,6 +1716,8 @@ function ChatStandalone() {
   const [team, setTeam] = useState(null);
   const [messages, setMessages] = useState([]);
   const [typingMap, setTypingMap] = useState({});
+  const [members, setMembers] = useState([]);
+  const [activity, setActivity] = useState({});
   const clientRef = useRef(null);
 
   useEffect(() => {
@@ -1671,11 +1732,26 @@ function ChatStandalone() {
     return () => { cancelled = true; };
   }, [me]);
 
+  // 팀 멤버 목록
+  useEffect(() => {
+    if (!me || !team) return;
+    let cancelled = false;
+    listTeamMembers(me.token, team.id).then((ms) => {
+      if (!cancelled) setMembers(ms);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [me, team]);
+
   useEffect(() => {
     if (!me || !team) return;
     const client = createTeamClient({
       token: me.token,
       teamCode: team.teamCode,
+      // 활동 이벤트 → 온라인 상태 추적
+      onMessage: (msg) => {
+        if (!msg?.userId) return;
+        setActivity((prev) => ({ ...prev, [msg.userId]: { lastSeen: Date.now() } }));
+      },
       onChat: (msg) => {
         const item = { ...msg, _key: `${msg.userId}-${msg.sentAt}-${Math.random().toString(36).slice(2, 6)}` };
         setMessages((prev) => {
@@ -1683,12 +1759,18 @@ function ChatStandalone() {
           if (next.length > 200) next.splice(0, next.length - 200);
           return next;
         });
+        // 채팅도 활동 신호 — 온라인으로 마킹
+        setActivity((prev) => ({ ...prev, [msg.userId]: { lastSeen: Date.now() } }));
         // 메시지 도착 → 해당 사용자 typing 정리
         setTypingMap((prev) => {
           if (!prev[msg.userId]) return prev;
           const { [msg.userId]: _, ...rest } = prev;
           return rest;
         });
+        // 본인이 아니고 창 미포커스 → 작업표시줄 점멸
+        if (msg.userId !== me.userId && !document.hasFocus()) {
+          window.mohaniIpc?.flashFrame?.(true);
+        }
       },
       onTyping: (evt) => {
         if (!evt || evt.userId === me.userId) return;
@@ -1696,11 +1778,19 @@ function ChatStandalone() {
           ...prev,
           [evt.userId]: { userId: evt.userId, displayName: evt.displayName, expiresAt: Date.now() + 5000 },
         }));
+        setActivity((prev) => ({ ...prev, [evt.userId]: { lastSeen: Date.now() } }));
       },
     });
     clientRef.current = client;
     return () => { client.disconnect(); clientRef.current = null; };
   }, [me, team]);
+
+  // 포커스 복귀 시 점멸 자동 중지
+  useEffect(() => {
+    const stop = () => window.mohaniIpc?.flashFrame?.(false);
+    window.addEventListener('focus', stop);
+    return () => window.removeEventListener('focus', stop);
+  }, []);
 
   // typing 만료 정리
   useEffect(() => {
@@ -1733,8 +1823,8 @@ function ChatStandalone() {
   return (
     <div className="chat-standalone">
       <div className="chat-standalone-head">
-        <span>{team.name} · 팀 채팅</span>
-        <span className="chat-standalone-hint">새로고침 시 사라져요</span>
+        <div className="chat-standalone-title">{team.name} · 팀 채팅</div>
+        <ChatMembersStrip members={members} activity={activity} />
       </div>
       <ChatPanelBody
         messages={messages}

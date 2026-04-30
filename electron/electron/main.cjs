@@ -97,6 +97,14 @@ ipcMain.handle('mohani:open-main', () => {
   return { ok: true };
 });
 
+// 새 채팅 도착 시 작업표시줄 점멸 — 렌더러가 호출 (창 미포커스일 때만 의미 있음).
+ipcMain.handle('mohani:flash-frame', (e, on) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.isDestroyed()) return;
+  if (on && win.isFocused()) return; // 이미 포커스면 의미 없음
+  win.flashFrame(!!on);
+});
+
 function createChatWindow() {
   if (chatWindow && !chatWindow.isDestroyed()) {
     chatWindow.show();
