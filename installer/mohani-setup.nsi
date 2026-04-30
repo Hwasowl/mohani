@@ -51,9 +51,10 @@ Section "Install"
   DetailPrint "Node.js 확인됨."
 
   ; ─── 2. 기존 mohani 프로세스 정리 (kill-mohani.ps1) ──────────
+  ; -IncludeLauncher : Mohani.exe 까지 같이 죽임 (재설치 시 파일 락 해제 위해 필요)
   DetailPrint "기존 Mohani 프로세스 정리 중..."
   File "kill-mohani.ps1"
-  nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\kill-mohani.ps1"'
+  nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\kill-mohani.ps1" -IncludeLauncher'
 
   ; ─── 3. npm 으로 mohani 최신 버전 설치 ─────────────────────────
   DetailPrint "Mohani 최신 버전 설치 중... (이미 최신이면 즉시 통과)"
