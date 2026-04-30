@@ -33,18 +33,21 @@ server:
 
 mohani:
   jwt:
-    # 운영환경에서는 환경변수로 주입. dev 기본값 (256bit hex 가짜 시크릿)
-    secret: ${MOHANI_JWT_SECRET:dev-secret-change-me-1234567890abcdef1234567890abcdef}
+    # 모든 환경에서 환경변수 강제 — 미설정 시 부팅 실패. dev라도 random secret 1회 생성해 주입.
+    # JwtService가 추가로 length(>=32) + 약한 패턴(dev-secret 등) 거부 가드 적용.
+    secret: ${MOHANI_JWT_SECRET}
     ttl-seconds: 2592000   # 30일
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        # health만 노출. 익명 가입(/auth/anonymous)으로 누구나 JWT 받을 수 있어서
+        # 인증 게이트로 metrics/info를 보호해도 의미 없음 → expose 자체에서 제외.
+        include: health
   endpoint:
     health:
-      show-details: when-authorized
+      show-details: never
 
 logging:
   level:

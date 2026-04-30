@@ -8,4 +8,6 @@ contextBridge.exposeInMainWorld('mohaniIpc', {
   isChat: () => location.hash === '#chat',
   openMainWindow: () => ipcRenderer.invoke('mohani:open-main'),
   flashFrame: (on) => ipcRenderer.invoke('mohani:flash-frame', !!on),
+  // H1: renderer가 데몬 호출 시 Authorization 헤더로 첨부할 로컬 secret.
+  getLocalSecret: () => ipcRenderer.invoke('mohani:get-local-secret'),
 });

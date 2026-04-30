@@ -1,9 +1,23 @@
 // Electron main process — Vite dev URL 또는 빌드된 dist를 로드.
 const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 
 const DEV_URL = process.env.MOHANI_DEV_URL || 'http://localhost:5173';
 const PRELOAD = path.join(__dirname, 'preload.cjs');
+const MOHANI_CONFIG_PATH = path.join(os.homedir(), '.mohani', 'config.json');
+
+// H1: 데몬 호출 시 헤더로 첨부할 로컬 secret 조회. (agent/electron-main.cjs와 동일 로직)
+function readLocalSecret() {
+  try {
+    const raw = fs.readFileSync(MOHANI_CONFIG_PATH, 'utf8');
+    const cfg = JSON.parse(raw);
+    return typeof cfg.localSecret === 'string' ? cfg.localSecret : null;
+  } catch {
+    return null;
+  }
+}
 
 let mainWindow = null;
 let widgetWindow = null;
@@ -96,6 +110,9 @@ ipcMain.handle('mohani:open-main', () => {
   createMainWindow();
   return { ok: true };
 });
+
+// H1: renderer가 데몬 호출 시 헤더로 첨부할 로컬 secret을 IPC로만 전달.
+ipcMain.handle('mohani:get-local-secret', () => readLocalSecret());
 
 // 새 채팅 도착 시 작업표시줄 점멸 — 렌더러가 호출 (창 미포커스일 때만 의미 있음).
 ipcMain.handle('mohani:flash-frame', (e, on) => {

@@ -161,8 +161,10 @@ class ActivityIngestServiceTest {
         verify(broker, times(1)).convertAndSend(eq("/topic/team/ABC123"), any(Object.class));
     }
 
+    // H3 정책 변경: 본문에 비밀이 섞여 와도 drop 대신 redact 후 저장.
+    // (drop은 redact가 못 잡은 비정상 케이스 안전망으로만 동작)
     @Test
-    void suspiciousInPromptFull_dropsEntireEvent() {
+    void secretInPromptFull_isRedactedAndPersisted() {
         ActivityEventDto evt = new ActivityEventDto(
             "UserPromptSubmit", "s1", null, "안전한 첫 줄",
             "안전 첫줄\n그런데 본문에 leaked AKIAIOSFODNN7EXAMPLE here",
@@ -170,9 +172,13 @@ class ActivityIngestServiceTest {
         );
 
         IngestResult result = service.ingest(7L, evt);
-        assertThat(result).isInstanceOf(IngestResult.Dropped.class);
-        assertThat(((IngestResult.Dropped) result).patterns()).contains("AWS_KEY");
-        verify(activities, never()).save(any(ActivityLog.class));
+        assertThat(result).isInstanceOf(IngestResult.Accepted.class);
+
+        ArgumentCaptor<ActivityLog> log = ArgumentCaptor.forClass(ActivityLog.class);
+        verify(activities, times(1)).save(log.capture());
+        assertThat(log.getValue().getPromptFull())
+            .doesNotContain("AKIAIOSFODNN7EXAMPLE")
+            .contains("●●●AWS_KEY●●●");
     }
 
     @Test

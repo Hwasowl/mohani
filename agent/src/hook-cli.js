@@ -11,10 +11,22 @@
 import { argv, env, exit, stderr, stdin } from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
+import { load as loadConfig } from './config-store.js';
 
 const HOST = env.MOHANI_AGENT_HOST || '127.0.0.1';
 const PORTS = (env.MOHANI_AGENT_PORTS || '24555,24556,24557').split(',').map(Number);
 const TIMEOUT_MS = Number(env.MOHANI_HOOK_TIMEOUT_MS || 1500);
+
+// H1: ~/.mohani/config.json에서 localSecret 읽어 헤더 첨부.
+// secret은 데몬 첫 기동 시 생성됨 — hook-cli가 먼저 호출되면 secret이 없을 수 있어 fail-soft.
+function readLocalSecret() {
+  try {
+    const cfg = loadConfig();
+    return typeof cfg.localSecret === 'string' ? cfg.localSecret : null;
+  } catch {
+    return null;
+  }
+}
 
 function parseEventArg(args) {
   for (const a of args) {
@@ -31,13 +43,15 @@ async function readStdin() {
   return buf;
 }
 
-async function postOnce(port, body) {
+async function postOnce(port, body, secret) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
+    const headers = { 'content-type': 'application/json' };
+    if (secret) headers.authorization = `Bearer ${secret}`;
     const res = await fetch(`http://${HOST}:${port}/agent/event`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body,
       signal: ctrl.signal,
     });
@@ -49,10 +63,11 @@ async function postOnce(port, body) {
   }
 }
 
-export async function sendToDaemon(payload, ports = PORTS) {
+export async function sendToDaemon(payload, ports = PORTS, secret = null) {
   const body = JSON.stringify(payload);
+  const localSecret = secret ?? readLocalSecret();
   for (const port of ports) {
-    if (await postOnce(port, body)) return { ok: true, port };
+    if (await postOnce(port, body, localSecret)) return { ok: true, port };
   }
   return { ok: false };
 }

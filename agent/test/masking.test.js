@@ -162,4 +162,78 @@ describe('detectSuspicious — server-side re-validation', () => {
   it('flags JWT', () => {
     expect(detectSuspicious('eyJhbGc.eyJzdWI.sig123')).toContain('JWT');
   });
+
+  // H4 — URL 인코딩 우회 잡기
+  it('flags URL-encoded password leak', () => {
+    const hits = detectSuspicious('password%3Dhunter2supersecret');
+    expect(hits).toContain('PASSWORD');
+  });
+});
+
+// H4 — 신규 service-specific 패턴 + 우회 차단
+describe('maskFirstLine — H4 신규 패턴', () => {
+  it('redacts GitHub PAT', () => {
+    const { masked, hits } = maskFirstLine('ghp_1234567890abcdefghijKLMNOPQrstuvwxYZ12');
+    expect(masked).toContain('●●●GITHUB_PAT●●●');
+    expect(hits).toContain('GITHUB_PAT');
+  });
+
+  it('redacts Slack bot token', () => {
+    // FAKE 명시 — GitHub secret scanning false positive 차단용. 정규식 패턴은 그대로 매칭됨.
+    const { masked, hits } = maskFirstLine('xoxb-FAKE-FAKETESTONLY-FAKETESTONLYTOKEN');
+    expect(masked).toContain('●●●SLACK_TOKEN●●●');
+    expect(hits).toContain('SLACK_TOKEN');
+  });
+
+  it('redacts OpenAI key (sk-proj-)', () => {
+    const { masked, hits } = maskFirstLine('sk-proj-FAKETESTONLYFAKETESTONLYFAKETESTONLY');
+    expect(masked).toContain('●●●OPENAI_KEY●●●');
+    expect(hits).toContain('OPENAI_KEY');
+  });
+
+  it('redacts Stripe live key', () => {
+    // 문자열 concat — GitHub secret scanner의 정적 매칭 회피용. 런타임엔 sk_live_ 패턴 그대로 형성.
+    const fakeStripe = 'sk' + '_live_' + 'FAKE'.repeat(8);
+    const { masked, hits } = maskFirstLine(fakeStripe);
+    expect(masked).toContain('●●●STRIPE_KEY●●●');
+    expect(hits).toContain('STRIPE_KEY');
+  });
+
+  it('redacts PEM private key marker', () => {
+    const { masked, hits } = maskFirstLine('-----BEGIN RSA PRIVATE KEY-----');
+    expect(masked).toContain('●●●PEM_PRIVATE●●●');
+    expect(hits).toContain('PEM_PRIVATE');
+  });
+
+  it('redacts Korean RRN', () => {
+    const { masked, hits } = maskFirstLine('주민번호 900101-1234567 입니다');
+    expect(masked).toContain('●●●KR_RRN●●●');
+    expect(hits).toContain('KR_RRN');
+  });
+
+  it('redacts credit card number', () => {
+    const { masked, hits } = maskFirstLine('카드 4111-1111-1111-1111');
+    expect(masked).toContain('●●●CC●●●');
+    expect(hits).toContain('CREDIT_CARD');
+  });
+
+  it('redacts password is X form', () => {
+    const { masked, hits } = maskFirstLine('the password is hunter2supersecret');
+    expect(masked).not.toContain('hunter2supersecret');
+    expect(hits).toContain('PASSWORD');
+  });
+
+  // NFKC 우회 차단
+  it('redacts NFKC-foldable fullwidth password', () => {
+    const { masked, hits } = maskFirstLine('ｐａｓｓｗｏｒｄ=hunter2supersecret');
+    expect(masked).not.toContain('hunter2supersecret');
+    expect(hits).toContain('PASSWORD');
+  });
+
+  // Zero-width space 우회 차단
+  it('redacts password with zero-width separator', () => {
+    const { masked, hits } = maskFirstLine('pa​ssword=hunter2supersecret');
+    expect(masked).not.toContain('hunter2supersecret');
+    expect(hits).toContain('PASSWORD');
+  });
 });

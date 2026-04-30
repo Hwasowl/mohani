@@ -15,8 +15,30 @@ public class JwtService {
     private final SecretKey key;
     private final long ttlSeconds;
 
+    // 약한 secret 패턴 — 과거 application.yml에 들어있던 dev fallback이나 README 예시 등이 prod로 새는 것 차단.
+    private static final String[] WEAK_SECRET_PREFIXES = {
+        "dev-secret",
+        "change-me",
+        "changeme",
+        "example",
+        "test-secret",
+    };
+
     public JwtService(JwtProperties props) {
-        byte[] secret = props.secret().getBytes(StandardCharsets.UTF_8);
+        String raw = props.secret();
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalStateException("mohani.jwt.secret is required (set MOHANI_JWT_SECRET env var)");
+        }
+        String lower = raw.toLowerCase();
+        for (String weak : WEAK_SECRET_PREFIXES) {
+            if (lower.startsWith(weak)) {
+                throw new IllegalStateException(
+                    "mohani.jwt.secret looks like a dev/example value — refuse to boot. "
+                        + "Generate a strong random secret (e.g. `openssl rand -hex 32`)."
+                );
+            }
+        }
+        byte[] secret = raw.getBytes(StandardCharsets.UTF_8);
         if (secret.length < 32) {
             throw new IllegalStateException("mohani.jwt.secret must be at least 32 bytes");
         }

@@ -1,5 +1,5 @@
 // Hook 이벤트 → 도메인 이벤트 변환. masking 적용 위치 단일화.
-import { detectSuspicious, maskBody, maskFirstLine } from './masking.js';
+import { detectSuspicious, maskBody, maskFirstLine, normalizeForMatching } from './masking.js';
 
 export const SUPPORTED_EVENTS = [
   'UserPromptSubmit',
@@ -32,9 +32,10 @@ export function normalizeEvent(raw, opts = {}) {
   }
 
   if (cwd && Array.isArray(opts.blacklistedDirs) && opts.blacklistedDirs.length > 0) {
-    const normalized = String(cwd).replace(/\\/g, '/').toLowerCase();
+    // NFKC + zero-width 제거로 cwd 끝에 invisible 문자 끼워넣어 startsWith 우회하는 트릭 차단.
+    const normalized = normalizeForMatching(cwd).replace(/\\/g, '/').toLowerCase();
     for (const dir of opts.blacklistedDirs) {
-      const normDir = String(dir).replace(/\\/g, '/').toLowerCase();
+      const normDir = normalizeForMatching(dir).replace(/\\/g, '/').toLowerCase();
       if (normalized === normDir || normalized.startsWith(normDir + '/')) {
         return { dropped: true, reason: 'blacklisted_dir' };
       }

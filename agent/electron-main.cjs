@@ -2,10 +2,25 @@
 // 친구 PC에 따로 설치 없음 — `mohani start`가 이 파일을 spawn함.
 const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 
 const isMac = process.platform === 'darwin';
 const PRELOAD = path.join(__dirname, 'electron-preload.cjs');
 const INDEX = path.join(__dirname, 'ui', 'index.html');
+const MOHANI_CONFIG_PATH = path.join(os.homedir(), '.mohani', 'config.json');
+
+// H1: 데몬은 ~/.mohani/config.json의 localSecret을 알아야만 호출 가능.
+// renderer는 IPC를 통해서만 secret에 접근 — 외부 웹페이지/LAN 공격자는 알 수 없음.
+function readLocalSecret() {
+  try {
+    const raw = fs.readFileSync(MOHANI_CONFIG_PATH, 'utf8');
+    const cfg = JSON.parse(raw);
+    return typeof cfg.localSecret === 'string' ? cfg.localSecret : null;
+  } catch {
+    return null;
+  }
+}
 
 let mainWindow = null;
 let widgetWindow = null;
@@ -93,6 +108,10 @@ ipcMain.handle('mohani:open-main', () => {
   createMainWindow();
   return { ok: true };
 });
+
+// H1: renderer가 데몬 호출 시 헤더로 첨부할 로컬 secret을 IPC로만 전달.
+// 외부 웹페이지가 contextIsolation 우회로도 못 가져가게 main process가 격리.
+ipcMain.handle('mohani:get-local-secret', () => readLocalSecret());
 
 // 새 채팅 도착 시 작업표시줄 점멸 — 렌더러가 호출.
 ipcMain.handle('mohani:flash-frame', (e, on) => {

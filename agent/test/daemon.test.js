@@ -7,20 +7,73 @@ vi.mock('../src/config-store.js', async (importOriginal) => {
 });
 import { createApp, listenWithFallback } from '../src/daemon.js';
 
+// H1 — 모든 보호 endpoint에 secret 헤더 필요. 테스트 헬퍼로 일관 주입.
+const TEST_SECRET = 'test-local-secret-32-bytes-padding-padding';
+
+// state에 localSecret 자동 주입. createApp이 원본 state에 mutation(lastEvent 등)하므로 spread 대신 mutate.
+function appWithSecret(state = {}) {
+  const userGetConfig = state.getConfig;
+  state.getConfig = () => ({ localSecret: TEST_SECRET, ...(userGetConfig ? userGetConfig() : {}) });
+  return createApp(state);
+}
+
+function authed(req) {
+  return req.set('authorization', `Bearer ${TEST_SECRET}`);
+}
+
 describe('daemon — /health', () => {
-  it('returns ok', async () => {
-    const app = createApp({});
-    const res = await request(app).get('/health');
+  it('returns ok (no auth required)', async () => {
+    const app = appWithSecret();
+    const res = await request(app).get('/health'); // 인증 미요구
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
   });
 });
 
+describe('daemon — H1 local secret auth', () => {
+  it('rejects /state without secret header (401)', async () => {
+    const app = appWithSecret();
+    const res = await request(app).get('/state');
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects /state with wrong secret (401)', async () => {
+    const app = appWithSecret();
+    const res = await request(app).get('/state').set('authorization', 'Bearer wrong-secret');
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects /state/session without secret (401) — CSRF 차단', async () => {
+    const app = appWithSecret();
+    const res = await request(app).post('/state/session').send({ token: 'x' });
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects /agent/event without secret (401)', async () => {
+    const app = appWithSecret();
+    const res = await request(app).post('/agent/event').send({ event: 'UserPromptSubmit' });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 503 when daemon has no secret configured (fail-closed)', async () => {
+    // localSecret 없는 상태 — 비정상이지만 절대 통과되면 안 됨.
+    const app = createApp({ getConfig: () => ({}) });
+    const res = await request(app).get('/state');
+    expect(res.status).toBe(503);
+  });
+
+  it('accepts request with valid secret', async () => {
+    const app = appWithSecret();
+    const res = await authed(request(app).get('/state'));
+    expect(res.status).toBe(200);
+  });
+});
+
 describe('daemon — /agent/event', () => {
   it('accepts UserPromptSubmit and returns masked event', async () => {
-    const app = createApp({});
-    const res = await request(app)
-      .post('/agent/event')
+    const app = appWithSecret();
+    const res = await authed(request(app)
+      .post('/agent/event'))
       .send({
         event: 'UserPromptSubmit',
         sessionId: 's1',
@@ -34,9 +87,9 @@ describe('daemon — /agent/event', () => {
   });
 
   it('drops payload when in private mode', async () => {
-    const app = createApp({ getConfig: () => ({ isPrivate: true, blacklistedDirs: [] }) });
-    const res = await request(app)
-      .post('/agent/event')
+    const app = appWithSecret({ getConfig: () => ({ isPrivate: true, blacklistedDirs: [] }) });
+    const res = await authed(request(app)
+      .post('/agent/event'))
       .send({ event: 'UserPromptSubmit', prompt: 'whatever' });
     expect(res.status).toBe(200);
     expect(res.body.dropped).toBe(true);
@@ -44,35 +97,35 @@ describe('daemon — /agent/event', () => {
   });
 
   it('drops payload from blacklisted dir', async () => {
-    const app = createApp({ getConfig: () => ({ isPrivate: false, blacklistedDirs: ['/work/erp'] }) });
-    const res = await request(app)
-      .post('/agent/event')
+    const app = appWithSecret({ getConfig: () => ({ isPrivate: false, blacklistedDirs: ['/work/erp'] }) });
+    const res = await authed(request(app)
+      .post('/agent/event'))
       .send({ event: 'UserPromptSubmit', cwd: '/work/erp/src', prompt: 'x' });
     expect(res.body.dropped).toBe(true);
     expect(res.body.reason).toBe('blacklisted_dir');
   });
 
   it('drops unsupported event types silently', async () => {
-    const app = createApp({});
-    const res = await request(app).post('/agent/event').send({ event: 'Garbage' });
+    const app = appWithSecret();
+    const res = await authed(request(app).post('/agent/event')).send({ event: 'Garbage' });
     expect(res.status).toBe(200);
     expect(res.body.dropped).toBe(true);
   });
 
   it('records lastEvent on shared state', async () => {
     const state = {};
-    const app = createApp(state);
-    await request(app)
-      .post('/agent/event')
+    const app = appWithSecret(state);
+    await authed(request(app)
+      .post('/agent/event'))
       .send({ event: 'UserPromptSubmit', prompt: 'hello' });
     expect(state.lastEvent.promptFirstLine).toBe('hello');
   });
 
   it('invokes onEvent callback for non-dropped events', async () => {
     const seen = [];
-    const app = createApp({ onEvent: (e) => seen.push(e) });
-    await request(app)
-      .post('/agent/event')
+    const app = appWithSecret({ onEvent: (e) => seen.push(e) });
+    await authed(request(app)
+      .post('/agent/event'))
       .send({ event: 'PreToolUse', tool_name: 'Bash' });
     expect(seen).toHaveLength(1);
     expect(seen[0].toolName).toBe('Bash');
@@ -80,10 +133,10 @@ describe('daemon — /agent/event', () => {
 
   it('first event has no durationDeltaSec; subsequent events accumulate gap', async () => {
     const seen = [];
-    const app = createApp({ onEvent: (e) => seen.push(e) });
-    await request(app).post('/agent/event').send({ event: 'UserPromptSubmit', prompt: 'a' });
+    const app = appWithSecret({ onEvent: (e) => seen.push(e) });
+    await authed(request(app).post('/agent/event')).send({ event: 'UserPromptSubmit', prompt: 'a' });
     await new Promise((r) => setTimeout(r, 1100));
-    await request(app).post('/agent/event').send({ event: 'PreToolUse', tool_name: 'Read' });
+    await authed(request(app).post('/agent/event')).send({ event: 'PreToolUse', tool_name: 'Read' });
     expect(seen[0].durationDeltaSec).toBeUndefined();
     expect(seen[1].durationDeltaSec).toBeGreaterThanOrEqual(1);
     expect(seen[1].durationDeltaSec).toBeLessThanOrEqual(2);
@@ -104,8 +157,8 @@ describe('daemon — /agent/event', () => {
     ].join('\n'));
 
     const seen = [];
-    const app = createApp({ onEvent: (e) => seen.push(e) });
-    await request(app).post('/agent/event').send({
+    const app = appWithSecret({ onEvent: (e) => seen.push(e) });
+    await authed(request(app).post('/agent/event')).send({
       event: 'Stop',
       session_id: 'sess-tok',
       transcript_path: transcriptPath,
@@ -115,8 +168,8 @@ describe('daemon — /agent/event', () => {
 
   it('Stop event with no transcript file leaves totalTokens null (no double-count)', async () => {
     const seen = [];
-    const app = createApp({ onEvent: (e) => seen.push(e) });
-    await request(app).post('/agent/event').send({
+    const app = appWithSecret({ onEvent: (e) => seen.push(e) });
+    await authed(request(app).post('/agent/event')).send({
       event: 'Stop',
       session_id: 'sess-x',
       transcript_path: '/non/existent/path.jsonl',
@@ -133,9 +186,9 @@ describe('daemon — /state/session (Electron 토큰 동기화)', () => {
       getConfig: () => ({ backendUrl: 'http://x' }),
       refreshConfig: () => refreshes.push(1),
     };
-    const app = createApp(state);
-    const res = await request(app)
-      .post('/state/session')
+    const app = appWithSecret(state);
+    const res = await authed(request(app)
+      .post('/state/session'))
       .send({ token: 'abc', userId: 7, displayName: '화소' });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
@@ -146,8 +199,8 @@ describe('daemon — /state/session (Electron 토큰 동기화)', () => {
 
   it('reports loggedIn=false when no token in body or cfg', async () => {
     const state = { getConfig: () => ({}), refreshConfig: () => {} };
-    const app = createApp(state);
-    const res = await request(app).post('/state/session').send({});
+    const app = appWithSecret(state);
+    const res = await authed(request(app).post('/state/session')).send({});
     expect(res.status).toBe(200);
     expect(res.body.loggedIn).toBe(false);
   });
@@ -162,9 +215,9 @@ describe('daemon — /state/session (Electron 토큰 동기화)', () => {
       getConfig: () => ({ backendUrl: 'http://orig', token: 'old', userId: 1, isPrivate: true }),
       refreshConfig: () => {},
     };
-    const app = createApp(state);
-    await request(app)
-      .post('/state/session')
+    const app = appWithSecret(state);
+    await authed(request(app)
+      .post('/state/session'))
       .send({ token: 'newtok', userId: 2, displayName: 'Z' }); // backendUrl 누락
 
     expect(savedSnapshot.token).toBe('newtok');
@@ -177,10 +230,10 @@ describe('daemon — /state/session (Electron 토큰 동기화)', () => {
 
 describe('daemon — port fallback', () => {
   it('falls back to next port when primary is occupied', async () => {
-    const blocker = createApp({});
+    const blocker = appWithSecret();
     const blocked = await listenWithFallback(blocker, [34555, 34556, 34557]);
     try {
-      const app = createApp({});
+      const app = appWithSecret();
       const result = await listenWithFallback(app, [blocked.port, 34556, 34557]);
       try {
         expect(result.port).not.toBe(blocked.port);
@@ -190,6 +243,19 @@ describe('daemon — port fallback', () => {
       }
     } finally {
       await new Promise((r) => blocked.server.close(r));
+    }
+  });
+
+  // C1 회귀 — LAN(0.0.0.0) 바인딩되면 같은 LAN 공격자가 토큰/backendUrl 덮어쓰기 가능했음.
+  it('binds only to 127.0.0.1 (not all interfaces)', async () => {
+    const app = appWithSecret();
+    const { server, port } = await listenWithFallback(app, [44555, 44556, 44557]);
+    try {
+      const addr = server.address();
+      expect(addr.address).toBe('127.0.0.1');
+      expect(addr.port).toBe(port);
+    } finally {
+      await new Promise((r) => server.close(r));
     }
   });
 });

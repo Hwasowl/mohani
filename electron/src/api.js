@@ -1,6 +1,22 @@
 // 백엔드 + 로컬 데몬 HTTP 클라이언트.
 const AGENT_PORTS = [24555, 24556, 24557];
 
+// H1: 데몬 호출 시 Authorization: Bearer <localSecret> 필요.
+// preload IPC로 한 번 받아서 캐시. Electron 환경 외(Vite 단독 실행)에선 null → 데몬 401.
+let cachedLocalSecret = null;
+let localSecretLoad = null;
+async function getLocalSecret() {
+  if (cachedLocalSecret) return cachedLocalSecret;
+  if (typeof window === 'undefined' || !window.mohaniIpc?.getLocalSecret) return null;
+  if (!localSecretLoad) {
+    localSecretLoad = window.mohaniIpc.getLocalSecret().then((s) => {
+      cachedLocalSecret = s;
+      return s;
+    }).catch(() => null);
+  }
+  return localSecretLoad;
+}
+
 // dev/prod 환경별 localStorage 키 분리 — 두 환경의 세션·deviceId·활성팀이 섞이지 않게.
 // PROD JWT는 dev 백엔드의 시크릿으로는 검증 못 하므로 401이 떨어지는데, 키가 분리되어 있으면 충돌이 안 남.
 export function envKey(name) {
@@ -126,11 +142,20 @@ export async function getTeamFeed(token, teamId, limit = 30) {
   return getJson(url, token);
 }
 
-// 로컬 데몬 (포트 폴백)
+// 로컬 데몬 (포트 폴백). H1 — 모든 호출에 localSecret 헤더 첨부.
+async function agentHeaders(extra = {}) {
+  const secret = await getLocalSecret();
+  return {
+    ...extra,
+    ...(secret ? { authorization: `Bearer ${secret}` } : {}),
+  };
+}
+
 export async function getAgentState() {
+  const headers = await agentHeaders();
   for (const port of AGENT_PORTS) {
     try {
-      const r = await fetch(`http://127.0.0.1:${port}/state`, { cache: 'no-store' });
+      const r = await fetch(`http://127.0.0.1:${port}/state`, { cache: 'no-store', headers });
       if (r.ok) return { port, state: await r.json() };
     } catch {}
   }
@@ -138,11 +163,12 @@ export async function getAgentState() {
 }
 
 export async function setAgentPrivacy(isPrivate) {
+  const headers = await agentHeaders({ 'content-type': 'application/json' });
   for (const port of AGENT_PORTS) {
     try {
       const r = await fetch(`http://127.0.0.1:${port}/state/privacy`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify({ isPrivate }),
       });
       if (r.ok) return await r.json();
@@ -154,11 +180,12 @@ export async function setAgentPrivacy(isPrivate) {
 // 로그인 후 데몬이 토큰을 모르면 hook 이벤트를 백엔드로 못 보낸다 — 즉시 동기화한다.
 export async function pushAgentSession({ token, userId, displayName }) {
   const backendUrl = getBackendUrl();
+  const headers = await agentHeaders({ 'content-type': 'application/json' });
   for (const port of AGENT_PORTS) {
     try {
       const r = await fetch(`http://127.0.0.1:${port}/state/session`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify({ token, userId, displayName, backendUrl }),
       });
       if (r.ok) return await r.json();

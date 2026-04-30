@@ -5,7 +5,7 @@
 import express from 'express';
 import { pathToFileURL } from 'node:url';
 import { createCodexWatcher } from './codex-watcher.js';
-import { load, save } from './config-store.js';
+import { load, loadAndPrime, save } from './config-store.js';
 import { normalizeEvent } from './events.js';
 import { detectSuspicious, maskBody, maskFirstLine, previewLines } from './masking.js';
 import { readLastAssistantTurn, readLastAssistantUsage } from './transcript.js';
@@ -27,12 +27,34 @@ export function createApp(state = {}) {
   });
   app.use(express.json({ limit: '256kb' }));
 
+  // H1: 로컬 secret 인증 미들웨어. /health 외 모든 endpoint에 Authorization: Bearer <localSecret> 요구.
+  // 같은 머신의 정상 클라이언트(Electron preload, mohani-hook)는 ~/.mohani/config.json에서 secret을 읽어 헤더 첨부.
+  // 외부 웹사이트(CSRF)나 LAN 공격자는 secret을 모르므로 401.
+  function requireLocalSecret(req, res, next) {
+    const cfg = state.getConfig?.() ?? {};
+    const expected = cfg.localSecret;
+    if (!expected) {
+      // secret이 아직 안 만들어진 비정상 상태 — fail-closed.
+      return res.status(503).json({ error: 'daemon not initialized' });
+    }
+    const header = req.headers.authorization || '';
+    if (!header.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'missing local secret' });
+    }
+    const token = header.slice('Bearer '.length).trim();
+    if (token !== expected) {
+      return res.status(401).json({ error: 'invalid local secret' });
+    }
+    next();
+  }
+
+  // /health: 외부 health check 가능 (sensitive 정보 미노출).
   app.get('/health', (_req, res) => {
     res.json({ ok: true, version: '0.1.0', queueDepth: state.transport?.queueDepth?.() ?? 0 });
   });
 
   // Electron이 데몬에서 현재 사용자 정보·비공개 토글을 폴링/제어할 때 사용.
-  app.get('/state', (_req, res) => {
+  app.get('/state', requireLocalSecret, (_req, res) => {
     const cfg = state.getConfig?.() ?? {};
     res.json({
       loggedIn: Boolean(cfg.token),
@@ -44,7 +66,7 @@ export function createApp(state = {}) {
     });
   });
 
-  app.post('/state/privacy', (req, res) => {
+  app.post('/state/privacy', requireLocalSecret, (req, res) => {
     const next = Boolean(req.body?.isPrivate);
     const cfg = state.getConfig?.() ?? {};
     save({ ...cfg, isPrivate: next });
@@ -54,7 +76,7 @@ export function createApp(state = {}) {
 
   // Electron이 로그인 후 데몬에 토큰을 주입 — hook이 백엔드로 흘러가게 만든다.
   // 누락된 필드는 기존 cfg 값을 보존.
-  app.post('/state/session', (req, res) => {
+  app.post('/state/session', requireLocalSecret, (req, res) => {
     const cfg = state.getConfig?.() ?? {};
     const body = req.body ?? {};
     const next = {
@@ -69,7 +91,7 @@ export function createApp(state = {}) {
     res.json({ ok: true, loggedIn: Boolean(next.token), userId: next.userId });
   });
 
-  app.post('/agent/event', async (req, res) => {
+  app.post('/agent/event', requireLocalSecret, async (req, res) => {
     const cfg = state.getConfig?.() ?? {};
     const result = normalizeEvent(req.body, {
       isPrivate: cfg.isPrivate ?? false,
@@ -141,7 +163,8 @@ export function listenWithFallback(app, ports = PORT_CANDIDATES) {
         return reject(new Error(`all candidate ports exhausted: ${ports.join(',')}`));
       }
       const port = ports[idx++];
-      const server = app.listen(port);
+      // 127.0.0.1로 바인딩 강제 — LAN 노출 차단. (LAN 공격자가 토큰/backendUrl 덮어쓰기 가능했던 표면 제거)
+      const server = app.listen(port, '127.0.0.1');
       server.once('listening', () => resolve({ server, port }));
       server.once('error', (err) => {
         if (err.code === 'EADDRINUSE') {
@@ -214,7 +237,8 @@ export async function dispatchCodexAssistantMessage({ message, occurredAt }, { g
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
-  let cfg = load();
+  // loadAndPrime — deviceId/localSecret 없으면 자동 생성·저장.
+  let cfg = loadAndPrime();
   const state = {
     getConfig: () => cfg,
     refreshConfig: () => { cfg = load(); },
