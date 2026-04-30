@@ -2,34 +2,30 @@
 title Mohani Install
 echo === Mohani Install ===
 echo.
+echo If Mohani is currently running, please close it first.
+echo (Close the Mohani UI window and the start.bat console.)
+echo.
+pause
+echo.
 
+echo Step 1: Checking Node.js...
 where node >nul 2>&1
 if errorlevel 1 (
   echo [ERROR] Node.js 20+ required.
-  echo Download: https://nodejs.org/en/download
+  echo Download from: https://nodejs.org/en/download
   echo.
   pause
   exit /b 1
 )
-echo Node.js OK
+echo Node.js found.
 echo.
 
-powershell -NoProfile -Command "if (Get-Process electron,node -EA SilentlyContinue | Where-Object { $_.Path -match 'mohani' }) { exit 1 } else { exit 0 }"
-if errorlevel 1 (
-  echo [WARN] Mohani is currently running.
-  echo Please close the Mohani window (and the start.bat console) first,
-  echo then re-run this installer.
-  echo.
-  pause
-  exit /b 1
-)
-
-echo Running: npm install -g mohani
-echo.
+echo Step 2: Installing mohani...
 call npm install -g mohani
 if errorlevel 1 (
   echo.
   echo [ERROR] Install failed. See messages above.
+  echo If "EBUSY" was shown: Mohani is still running. Close it and re-run.
   echo.
   pause
   exit /b 1
@@ -37,6 +33,6 @@ if errorlevel 1 (
 
 echo.
 echo === Install complete ===
-echo Run mohani-start.bat to launch Mohani.
+echo Now double-click mohani-start.bat to launch Mohani.
 echo.
 pause
