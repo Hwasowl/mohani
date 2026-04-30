@@ -17,6 +17,8 @@
 5. 업데이트 받고 싶으면 mohani-install.bat 다시 실행
 ```
 
+> bat 파일 내부 메시지는 영문 — Windows cmd가 한글 BOM/CP949 이슈로 깨짐을 방지.
+
 ## 왜 .exe 가 아닌 .bat?
 
 코드 사인 안 된 .exe 는 SmartScreen 평판 검사로 매번 막힘 (마우스 spinner +
