@@ -152,4 +152,94 @@ describe('codex-watcher', () => {
     expect(messages).toEqual(['A', 'B']);
     watcher.stop();
   });
+
+  function makeAgentMessage(text, timestampMs) {
+    return {
+      timestamp: new Date(timestampMs).toISOString(),
+      type: 'event_msg',
+      payload: { type: 'agent_message', message: text },
+    };
+  }
+
+  it('한 turn 안의 여러 agent_message는 마지막 것만 송신 (다음 user_message가 트리거)', async () => {
+    const userHandler = vi.fn();
+    const assistantHandler = vi.fn();
+    const watcher = createCodexWatcher({
+      onUserMessage: userHandler,
+      onAssistantMessage: assistantHandler,
+      sessionsDir: tempRoot,
+      pollIntervalMs: 999999,
+      assistantTurnEndMs: 999999, // 타임아웃은 막아두고 user_message 트리거만 검증
+    });
+    await watcher._tick();
+
+    const t0 = Date.now() + 100;
+    writeJsonlLines(sessionFile, [
+      makeUserMessage('첫 질문', t0),
+      makeAgentMessage('중간 답변 1', t0 + 1000),
+      makeAgentMessage('중간 답변 2', t0 + 2000),
+      makeAgentMessage('최종 답변', t0 + 3000),
+      makeUserMessage('두번째 질문', t0 + 4000),
+    ]);
+    await watcher._tick();
+
+    // user_message 2번 (질문 + 다음 질문)
+    expect(userHandler).toHaveBeenCalledTimes(2);
+    // assistant는 마지막 것만 1번 (다음 user_message가 들어오면서 flush)
+    expect(assistantHandler).toHaveBeenCalledTimes(1);
+    expect(assistantHandler.mock.calls[0][0].message).toBe('최종 답변');
+    watcher.stop();
+  });
+
+  it('침묵 타임아웃이 지나면 마지막 agent_message를 flush', async () => {
+    const assistantHandler = vi.fn();
+    const watcher = createCodexWatcher({
+      onUserMessage: vi.fn(),
+      onAssistantMessage: assistantHandler,
+      sessionsDir: tempRoot,
+      pollIntervalMs: 999999,
+      assistantTurnEndMs: 50, // 50ms 후 타임아웃
+    });
+    await watcher._tick();
+
+    const t0 = Date.now() + 100;
+    writeJsonlLines(sessionFile, [
+      makeAgentMessage('답변 A', t0),
+      makeAgentMessage('답변 B (최종)', t0 + 10),
+    ]);
+    await watcher._tick();
+
+    // 즉시 송신되지 않음 (타임아웃 대기 중)
+    expect(assistantHandler).not.toHaveBeenCalled();
+
+    // 타임아웃 지나면 송신
+    await new Promise((r) => setTimeout(r, 100));
+    expect(assistantHandler).toHaveBeenCalledTimes(1);
+    expect(assistantHandler.mock.calls[0][0].message).toBe('답변 B (최종)');
+    watcher.stop();
+  });
+
+  it('stop() 시 버퍼된 답변 flush — 손실 방지', async () => {
+    const assistantHandler = vi.fn();
+    const watcher = createCodexWatcher({
+      onUserMessage: vi.fn(),
+      onAssistantMessage: assistantHandler,
+      sessionsDir: tempRoot,
+      pollIntervalMs: 999999,
+      assistantTurnEndMs: 999999,
+    });
+    await watcher._tick();
+
+    writeJsonlLines(sessionFile, [
+      makeAgentMessage('미처 보내지 못한 답변', Date.now() + 100),
+    ]);
+    await watcher._tick();
+    expect(assistantHandler).not.toHaveBeenCalled();
+
+    watcher.stop();
+    // stop 직후 비동기 flush 끝날 때까지 한 틱 양보
+    await new Promise((r) => setImmediate(r));
+    expect(assistantHandler).toHaveBeenCalledTimes(1);
+    expect(assistantHandler.mock.calls[0][0].message).toBe('미처 보내지 못한 답변');
+  });
 });

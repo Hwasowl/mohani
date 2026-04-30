@@ -3,6 +3,11 @@
 // 매 줄 1개 이벤트: {timestamp, type: 'event_msg' | ..., payload: {type: 'user_message', message, ...}}
 //
 // 워처 시작 시점의 파일 크기를 기준으로 잡아 — 그 이전에 쌓인 메시지는 다시 전송하지 않는다.
+//
+// agent_message는 한 turn 안에서 여러 번 emit됨 (중간 진행 + 최종 답변). 모두 그대로 송신하면
+// 친구 피드에 답변이 N개 박힘 → 마지막 것만 골라야 함.
+// 전략: per-session으로 가장 최근 agent_message만 버퍼링 → (a) 다음 user_message가 오면 flush,
+// 또는 (b) assistantTurnEndMs 동안 침묵하면 flush.
 
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -14,12 +19,15 @@ const DEFAULT_POLL_MS = 5000;
 const DEFAULT_SESSIONS_DIR = path.join(os.homedir(), '.codex', 'sessions');
 // 24시간 이상 된 파일은 활성 세션이 아니므로 watcher 대상에서 제외 (디스크 I/O 절약).
 const FRESH_WINDOW_MS = 24 * 3600 * 1000;
+// agent_message 이후 이만큼 침묵하면 turn 종료로 간주, 버퍼된 마지막 답변 flush.
+const DEFAULT_ASSISTANT_TURN_END_MS = 30 * 1000;
 
 export function createCodexWatcher({
   onUserMessage,
   onAssistantMessage,
   sessionsDir = DEFAULT_SESSIONS_DIR,
   pollIntervalMs = DEFAULT_POLL_MS,
+  assistantTurnEndMs = DEFAULT_ASSISTANT_TURN_END_MS,
   log = console,
   now = () => Date.now(),
 } = {}) {
@@ -29,6 +37,8 @@ export function createCodexWatcher({
   const startedAtMs = now();
   // path → 마지막 처리한 byte offset
   const offsets = new Map();
+  // path → { msg, timer } : per-session 가장 최근 agent_message 버퍼
+  const assistantBuffers = new Map();
   let timer = null;
   let running = false;
 
@@ -71,6 +81,27 @@ export function createCodexWatcher({
     }
   }
 
+  function bufferAssistant(filePath, msg) {
+    const prev = assistantBuffers.get(filePath);
+    if (prev?.timer) clearTimeout(prev.timer);
+    const t = setTimeout(() => { flushAssistant(filePath); }, assistantTurnEndMs);
+    t.unref?.();
+    assistantBuffers.set(filePath, { msg, timer: t });
+  }
+
+  async function flushAssistant(filePath) {
+    const buf = assistantBuffers.get(filePath);
+    if (!buf) return;
+    if (buf.timer) clearTimeout(buf.timer);
+    assistantBuffers.delete(filePath);
+    if (typeof onAssistantMessage !== 'function') return;
+    try {
+      await onAssistantMessage(buf.msg);
+    } catch (err) {
+      log.warn?.('[codex-watcher] onAssistantMessage error:', err.message);
+    }
+  }
+
   async function handleEntry(entry, filePath) {
     if (!entry || entry.type !== 'event_msg') return;
     const payload = entry.payload;
@@ -83,6 +114,8 @@ export function createCodexWatcher({
 
     if (payload.type === 'user_message') {
       if (typeof payload.message !== 'string' || payload.message.length === 0) return;
+      // 새 user_message → 직전 turn의 마지막 assistant 답변 먼저 flush.
+      await flushAssistant(filePath);
       try {
         await onUserMessage({
           message: payload.message,
@@ -99,15 +132,12 @@ export function createCodexWatcher({
       // Codex의 agent_message 본문 위치는 버전마다 message/text/content 등 다름 — 우선순위로 시도.
       const text = payload.message ?? payload.text ?? payload.content ?? null;
       if (typeof text !== 'string' || text.length === 0) return;
-      try {
-        await onAssistantMessage({
-          message: text,
-          occurredAt,
-          sessionFile: filePath,
-        });
-      } catch (err) {
-        log.warn?.('[codex-watcher] onAssistantMessage error:', err.message);
-      }
+      // 즉시 송신하지 않고 버퍼링 — 다음 user_message 또는 침묵 타임아웃 시 flush.
+      bufferAssistant(filePath, {
+        message: text,
+        occurredAt,
+        sessionFile: filePath,
+      });
     }
   }
 
@@ -145,9 +175,15 @@ export function createCodexWatcher({
     },
     stop() {
       if (timer) { clearInterval(timer); timer = null; }
+      // 종료 시 버퍼된 마지막 답변들 flush — 손실 방지.
+      for (const p of [...assistantBuffers.keys()]) {
+        flushAssistant(p);
+      }
     },
     // 테스트용
     _tick: tick,
     _offsets: offsets,
+    _flushAssistant: flushAssistant,
+    _assistantBuffers: assistantBuffers,
   };
 }
