@@ -11,14 +11,22 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-
 echo Node.js OK
+echo.
+
+echo Stopping running Mohani processes (only mohani-related node/electron)...
+powershell -NoProfile -Command "Get-Process electron,node -EA SilentlyContinue | Where-Object { $_.Path -match 'mohani' } | Stop-Process -Force -EA SilentlyContinue"
+timeout /t 1 /nobreak >nul
+echo OK
+echo.
+
 echo Running: npm install -g mohani
 echo.
 call npm install -g mohani
 if errorlevel 1 (
   echo.
   echo [ERROR] Install failed. See messages above.
+  echo If EBUSY: close Mohani UI window, then re-run this bat.
   echo.
   pause
   exit /b 1
