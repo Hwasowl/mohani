@@ -141,6 +141,10 @@ export async function getTeamFeed(token, teamId, limit = 30) {
   const url = `${getBackendUrl()}/api/v1/activity/team-feed?teamId=${teamId}&limit=${limit}`;
   return getJson(url, token);
 }
+export async function getLeaderboard(token, teamId, { metric = 'tokens', window = 'today' } = {}) {
+  const url = `${getBackendUrl()}/api/v1/teams/${teamId}/leaderboard?metric=${metric}&window=${window}`;
+  return getJson(url, token);
+}
 
 // 로컬 데몬 (포트 폴백). H1 — 모든 호출에 localSecret 헤더 첨부.
 async function agentHeaders(extra = {}) {

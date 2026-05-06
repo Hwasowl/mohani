@@ -819,6 +819,27 @@ button { font-family: inherit; }
 .cli-codex  { background: rgba(74, 222, 128, 0.12); color: #86efac; border: 1px solid rgba(74, 222, 128, 0.3); }
 .cli-aider  { background: rgba(168, 85, 247, 0.12); color: #c4b5fd; border: 1px solid rgba(168, 85, 247, 0.3); }
 
+/* ── 헤더 아이콘 버튼 (새로고침 등) ── */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-right: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #d4d4d8;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.2s;
+  -webkit-app-region: no-drag;
+}
+.icon-button:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.15); }
+.icon-button:active > span { transform: rotate(180deg); transition: transform 0.3s; }
+
 /* ── 채팅 ── */
 .chat-toggle {
   position: relative;
@@ -912,14 +933,19 @@ button { font-family: inherit; }
 
 .chat-input {
   display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
   gap: 8px;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(0, 0, 0, 0.15);
   flex-shrink: 0;   /* chat-list가 욕심내도 input이 안 줄어들도록 */
 }
 .chat-input input {
-  flex: 1;
+  flex: 1 1 auto;
+  /* min-width 미지정 시 flex 자식의 기본 min-width=auto 가 placeholder 길이를 물고
+     form 가용폭을 초과시켜 마지막 보내기 버튼이 잘림 → 명시 0으로 강제 */
+  min-width: 0;
   padding: 8px 12px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -928,6 +954,7 @@ button { font-family: inherit; }
   font-size: 13.5px;
   outline: none;
 }
+.chat-input button { flex-shrink: 0; }
 .chat-input input:focus { border-color: rgba(99, 102, 241, 0.5); }
 .chat-input button {
   padding: 8px 16px;
@@ -1063,6 +1090,8 @@ button { font-family: inherit; }
 /* 아바타 이미지 변형 — 기본 .avatar 위에 사진을 덮어씀 */
 .avatar-image { overflow: hidden; background: rgba(255,255,255,0.05); }
 .avatar-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar.clickable { cursor: zoom-in; transition: transform 0.12s; }
+.avatar.clickable:hover { transform: scale(1.06); }
 
 /* 채팅 본문 컴포넌트 — drawer/standalone 양쪽에서 공유 */
 .chat-panel-body {
@@ -1109,9 +1138,9 @@ button { font-family: inherit; }
   -webkit-app-region: drag;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   /* 우측 패딩 = Windows titleBarOverlay min/max/close 영역 회피 */
-  padding: 8px 148px 8px 16px;
+  padding: 12px 148px 12px 16px;
   flex-shrink: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(
@@ -1121,7 +1150,12 @@ button { font-family: inherit; }
   );
   user-select: none;
 }
-.chat-standalone-head > * { -webkit-app-region: no-drag; }
+/* 헤더 전체와 자식(타이틀, 멤버 strip 등) 모두 드래그 영역.
+   클릭 인터랙션이 필요한 요소만 .chat-standalone-head .clickable 또는
+   button/role=button 으로 명시적 no-drag 부여. */
+.chat-standalone-head button,
+.chat-standalone-head .clickable,
+.chat-standalone-head [role="button"] { -webkit-app-region: no-drag; }
 .chat-standalone-title { font-size: 13px; font-weight: 600; color: #f1f5f9; }
 
 /* 채팅 멤버 스트립 — drawer/standalone 양쪽에서 공유 */
@@ -1328,4 +1362,197 @@ button { font-family: inherit; }
   object-fit: contain;
   border-radius: 8px;
   cursor: default;
+}
+
+/* 우상단 랭킹 토글 버튼 */
+.dashboard-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.10);
+  border: 1px solid rgba(251, 191, 36, 0.30);
+  color: #fde68a;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, transform 80ms;
+}
+.dashboard-toggle:hover {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.50);
+}
+.dashboard-toggle:active { transform: translateY(1px); }
+.dashboard-toggle.active {
+  background: rgba(251, 191, 36, 0.28);
+  border-color: rgba(251, 191, 36, 0.70);
+  color: #fef3c7;
+}
+.dashboard-toggle-label { letter-spacing: -0.01em; }
+
+/* 친구 그리드 카드의 1등 표시 — 카드 우상단 왕관 + 카드 강조 테두리 */
+.member-card { position: relative; }
+.member-card.is-leader {
+  border-color: rgba(251, 191, 36, 0.55);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.25), 0 4px 16px rgba(251, 191, 36, 0.10);
+}
+.member-card .card-crown {
+  position: absolute;
+  top: 8px;
+  right: 32px; /* card-chevron(›)과 안 겹치게 */
+  font-size: 18px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* 대시보드 (별도 창) */
+/* 메인 화면의 dashboard view 컨테이너 — content 영역을 단일 컬럼으로 채움 */
+.content.content-single {
+  grid-template-columns: 1fr !important;
+  display: grid;
+  min-height: 0;
+}
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  -webkit-app-region: no-drag;
+}
+.dashboard-head {
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.dashboard-head-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+}
+.dashboard-close {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-dim);
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.dashboard-close:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+}
+.top-token-badge.active {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.32), rgba(245, 158, 11, 0.20));
+  border-color: rgba(251, 191, 36, 0.75);
+}
+.top-token-badge.me.active {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.34), rgba(16, 185, 129, 0.20));
+  border-color: rgba(34, 197, 94, 0.80);
+}
+.dashboard-title {
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dashboard-subtitle {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+.dashboard-toolbar {
+  -webkit-app-region: no-drag;
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  flex-wrap: wrap;
+}
+.dashboard-toolbar .seg {
+  display: inline-flex;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 2px;
+}
+.dashboard-toolbar .seg button {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.dashboard-toolbar .seg button.active {
+  background: rgba(99, 102, 241, 0.20);
+  color: #c7d2fe;
+}
+.dashboard-toolbar .seg button[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.dashboard-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px 16px;
+}
+.dashboard-row {
+  display: grid;
+  grid-template-columns: 36px 36px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+}
+.dashboard-row.me {
+  border-color: rgba(99, 102, 241, 0.45);
+  background: rgba(99, 102, 241, 0.08);
+}
+.dashboard-row.zero { opacity: 0.55; }
+.dashboard-rank {
+  font-size: 14px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-rank.r1 { color: #fbbf24; }
+.dashboard-rank.r2 { color: #cbd5e1; }
+.dashboard-rank.r3 { color: #d97706; }
+.dashboard-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+.dashboard-name .me-tag {
+  margin-left: 6px;
+  font-size: 10px;
+  padding: 1px 6px;
+  background: rgba(99, 102, 241, 0.30);
+  color: #c7d2fe;
+  border-radius: 4px;
+}
+.dashboard-score {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #e2e8f0;
+}
+.dashboard-row.zero .dashboard-score { color: #64748b; }
+.dashboard-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
 }

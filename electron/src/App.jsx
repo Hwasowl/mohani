@@ -4,6 +4,7 @@ import {
   envKey,
   generateDeviceId,
   getAgentState,
+  getLeaderboard,
   getRecentActivity,
   getTeamFeed,
   getTeamTodayStats,
@@ -50,18 +51,38 @@ function CliBadge({ kind }) {
   return <span className={`cli-badge cli-${kind}`}>{label}</span>;
 }
 
-function Avatar({ name, seed, size = 40, ring, url }) {
+function Avatar({ name, seed, size = 40, ring, url, noLightbox = false }) {
   const initial = (name || '?').trim().slice(0, 1).toUpperCase();
   const hue = hashHue(seed ?? name);
+  const [open, setOpen] = useState(false);
+  // url이 있고 noLightbox가 명시 안 됐으면 클릭 시 큰 화면.
+  // 부모에서 onClick(메뉴 토글)을 잡는 곳(헤더 me-button 등)은 noLightbox로 끔.
+  const enlarge = !!url && !noLightbox;
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
   if (url) {
     return (
-      <div
-        className={`avatar avatar-image${ring ? ' ring' : ''}`}
-        style={{ width: size, height: size }}
-      >
-        <img src={url} alt={name ?? ''} loading="lazy"
-             onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-      </div>
+      <>
+        <div
+          className={`avatar avatar-image${ring ? ' ring' : ''}${enlarge ? ' clickable' : ''}`}
+          style={{ width: size, height: size }}
+          onClick={enlarge ? (e) => { e.stopPropagation(); setOpen(true); } : undefined}
+          role={enlarge ? 'button' : undefined}
+          aria-label={enlarge ? `${name ?? '프로필'} 사진 크게 보기` : undefined}
+        >
+          <img src={url} alt={name ?? ''} loading="lazy"
+               onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+        </div>
+        {enlarge && open && (
+          <div className="chat-lightbox" onClick={() => setOpen(false)} role="dialog" aria-label="프로필 사진">
+            <img src={url} alt={name ?? ''} onClick={(e) => e.stopPropagation()} />
+          </div>
+        )}
+      </>
     );
   }
   return (
@@ -80,7 +101,7 @@ function Avatar({ name, seed, size = 40, ring, url }) {
 }
 
 export default function App() {
-  // URL hash로 메인/위젯/채팅 모드 분기
+  // URL hash로 메인/위젯/채팅 모드 분기 (대시보드는 메인 안의 view 전환으로 통합)
   if (typeof window !== 'undefined') {
     if (window.location.hash === '#widget') return <WidgetApp />;
     if (window.location.hash === '#chat') return <ChatStandalone />;
@@ -101,6 +122,10 @@ function MainApp() {
   // 팀 채팅은 영구저장 안 함 — 새로고침/팀변경 시 자동 소멸 OK
   const [chatByTeam, setChatByTeam] = useState({});       // { [teamCode]: ChatMessage[] }
   const [unreadByTeam, setUnreadByTeam] = useState({});   // { [teamCode]: number }
+  // 토큰 랭킹 — 팀 전환 시 잔상 안 남기고 즉시 갱신되도록 teamCode별 보관
+  const [leaderboardByTeam, setLeaderboardByTeam] = useState({}); // { [teamCode]: LeaderboardEntry[] }
+  // 메인 컨텐츠 영역의 뷰 — 'main'(친구 그리드+피드) 또는 'dashboard'(랭킹 풀뷰)
+  const [view, setView] = useState('main');
   const [chatOpen, setChatOpen] = useState(false);
   // 누가 타이핑 중인지: { [teamCode]: { [userId]: { displayName, expiresAt } } }
   const [typingByTeam, setTypingByTeam] = useState({});
@@ -122,6 +147,7 @@ function MainApp() {
   const chat = activeTeamCode ? (chatByTeam[activeTeamCode] ?? []) : [];
   const unreadCount = activeTeamCode ? (unreadByTeam[activeTeamCode] ?? 0) : 0;
   const isLoadingTeam = activeTeamCode ? !!loadingByTeam[activeTeamCode] : false;
+  const leaderboard = activeTeamCode ? (leaderboardByTeam[activeTeamCode] ?? []) : [];
   // 활성 타이핑 (5초 이내, 본인 제외) 사용자 displayName 배열
   const typingNames = useMemo(() => {
     if (!activeTeamCode) return [];
@@ -276,6 +302,27 @@ function MainApp() {
         handleApiError(e);
       }
     })();
+  }, [me, activeTeam]);
+
+  // 토큰 랭킹 polling — 30초 주기. STOMP 활동 이벤트로 자동 refresh는 Phase 4에서.
+  useEffect(() => {
+    if (!me || !activeTeam) return;
+    const teamCode = activeTeam.teamCode;
+    const teamId = activeTeam.id;
+    let cancelled = false;
+    const fetchOnce = async () => {
+      try {
+        const lb = await getLeaderboard(me.token, teamId);
+        if (!cancelled) {
+          setLeaderboardByTeam((prev) => ({ ...prev, [teamCode]: lb }));
+        }
+      } catch (e) {
+        // 401 등은 다음 주기에서 회복. 폴링은 silent.
+      }
+    };
+    fetchOnce();
+    const id = setInterval(fetchOnce, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
   }, [me, activeTeam]);
 
   useEffect(() => {
@@ -490,13 +537,26 @@ function MainApp() {
         unread: unreadCount,
         onToggle: () => setChatOpen((v) => !v),
       }}
+      dashboardOpen={view === 'dashboard'}
+      onToggleDashboard={() => setView((v) => v === 'dashboard' ? 'main' : 'dashboard')}
     >
+      {view === 'dashboard' ? (
+        <main className="content content-single">
+          <LeaderboardView
+            token={me.token}
+            team={activeTeam}
+            myUserId={me.userId}
+            onClose={() => setView('main')}
+          />
+        </main>
+      ) : (
       <main className="content" style={{ gridTemplateColumns: feedOpen ? `minmax(0, 1fr) ${feedWidth}px` : '1fr' }}>
         <FriendGrid
           members={members}
           activity={activity}
           loading={isLoadingTeam}
           myUserId={me.userId}
+          leaderUserId={leaderboard.length > 0 && leaderboard[0].score > 0 ? leaderboard[0].userId : null}
           onSelect={(member) => setSelectedMember(member)}
         />
         {feedOpen && (
@@ -513,6 +573,7 @@ function MainApp() {
           </button>
         )}
       </main>
+      )}
 
       {selectedMember && activeTeam && (
         <MemberActivityDrawer
@@ -601,7 +662,7 @@ function MainApp() {
   );
 }
 
-function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, onChangeAvatar, agent, onPrivacyToggle, onLogout, chat }) {
+function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, onChangeAvatar, agent, onPrivacyToggle, onLogout, chat, dashboardOpen, onToggleDashboard }) {
   return (
     <div className="app">
       <Header
@@ -617,6 +678,8 @@ function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam
         onPrivacyToggle={onPrivacyToggle}
         onLogout={onLogout}
         chat={chat}
+        dashboardOpen={dashboardOpen}
+        onToggleDashboard={onToggleDashboard}
       />
       {children}
     </div>
@@ -637,7 +700,21 @@ function usePopover() {
   return { open, setOpen, ref };
 }
 
-function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, onChangeAvatar, agent, onPrivacyToggle, onLogout, chat }) {
+function DashboardToggleButton({ active, onClick }) {
+  // 항상 표시 — 토큰 없는 상태에서도 진입 가능. 1등 표시는 친구 그리드의 왕관으로 분리.
+  return (
+    <button
+      className={`dashboard-toggle ${active ? 'active' : ''}`}
+      onClick={onClick}
+      title="팀 토큰 랭킹 보기"
+    >
+      <span aria-hidden="true">🏆</span>
+      <span className="dashboard-toggle-label">랭킹보기</span>
+    </button>
+  );
+}
+
+function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, onChangeAvatar, agent, onPrivacyToggle, onLogout, chat, dashboardOpen, onToggleDashboard }) {
   const userMenu = usePopover();
   const teamMenu = usePopover();
   const isPrivate = agent?.state?.isPrivate;
@@ -647,7 +724,6 @@ function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRenam
     <header className="header">
       <div className="brand">
         <span className="brand-dot" />
-        <span className="brand-name">모하니</span>
         {team && (
           <div className="team-pill-wrap" ref={teamMenu.ref}>
             <button className="team-pill" onClick={() => teamMenu.setOpen((v) => !v)}>
@@ -686,6 +762,9 @@ function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRenam
         {isPrivate && <span className="status-chip private">비공개 모드</span>}
       </div>
       <div className="grow" />
+      {me && team && (
+        <DashboardToggleButton active={dashboardOpen} onClick={onToggleDashboard} />
+      )}
       {me && team && chat && (
         <button
           className={`chat-toggle ${chat.open ? 'active' : ''}`}
@@ -698,9 +777,19 @@ function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRenam
         </button>
       )}
       {me && (
+        <button
+          className="icon-button"
+          onClick={() => window.location.reload()}
+          title="새로고침"
+          aria-label="새로고침"
+        >
+          <span aria-hidden="true">↻</span>
+        </button>
+      )}
+      {me && (
         <div className="header-actions" ref={userMenu.ref}>
           <button className="me-button" onClick={() => userMenu.setOpen((v) => !v)}>
-            <Avatar name={me.displayName} seed={me.userId} size={28} url={me.avatarUrl} />
+            <Avatar name={me.displayName} seed={me.userId} size={28} url={me.avatarUrl} noLightbox />
             <span className="me-name">{me.displayName}</span>
             <span className="caret">▾</span>
           </button>
@@ -726,9 +815,6 @@ function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRenam
                   미니 위젯 보기/숨기기
                 </button>
               )}
-              <button className="menu-item" onClick={() => { window.location.reload(); }}>
-                새로고침
-              </button>
               {onLogout && (
                 <button className="menu-item danger" onClick={() => { onLogout(); userMenu.setOpen(false); }}>
                   로그아웃
@@ -1058,7 +1144,7 @@ function TeamSetup({ token, onTeamReady, onError, error }) {
   );
 }
 
-function FriendGrid({ members, activity, loading, myUserId, onSelect }) {
+function FriendGrid({ members, activity, loading, myUserId, leaderUserId, onSelect }) {
   if (members.length === 0) {
     return (
       <section className="grid-empty">
@@ -1074,6 +1160,7 @@ function FriendGrid({ members, activity, loading, myUserId, onSelect }) {
         const tokens = a?.todayTokens ?? 0;
         const minutes = Math.round((a?.todayDurationSec ?? 0) / 60);
         const isMe = m.userId === myUserId;
+        const isLeader = leaderUserId != null && m.userId === leaderUserId;
         const showSkeleton = loading && !a;
         // 카드의 핵심 한 줄: 진행 중 작업 > 마지막 작업 > 빈 상태 메시지
         const promptLine = a?.promptFirstLine
@@ -1086,13 +1173,16 @@ function FriendGrid({ members, activity, loading, myUserId, onSelect }) {
         return (
           <article
             key={m.userId}
-            className={`member-card ${active ? 'active' : 'idle'} clickable ${showSkeleton ? 'skeleton' : ''}`}
+            className={`member-card ${active ? 'active' : 'idle'} ${isLeader ? 'is-leader' : ''} clickable ${showSkeleton ? 'skeleton' : ''}`}
             role="button"
             tabIndex={0}
             onClick={() => onSelect?.(m)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect?.(m); }}
-            title="클릭해서 최근 활동 보기"
+            title={isLeader ? '오늘 토큰 1등 — 클릭해서 활동 보기' : '클릭해서 최근 활동 보기'}
           >
+            {isLeader && (
+              <span className="card-crown" aria-hidden="true" title="오늘 토큰 1등">👑</span>
+            )}
             <header className="member-head">
               <Avatar name={m.displayName} seed={m.userId} size={44} ring={active} url={m.avatarUrl} />
               <div className="member-meta">
@@ -1939,6 +2029,96 @@ function WidgetApp() {
                 <div className="widget-prompt">
                   {a?.promptFirstLine || (active ? '...' : '쉬는 중')}
                 </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function LeaderboardView({ token, team, myUserId, onClose }) {
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [loading, setLoading] = useState(true);
+  // Phase 1: window/metric 토글은 보여주지만 'today'/'tokens' 외엔 disabled — Phase 2/3에서 풀림
+  const [window_, setWindow] = useState('today');
+  const [metric, setMetric] = useState('tokens');
+
+  useEffect(() => {
+    if (!token || !team) { setLoading(false); return; }
+    let cancelled = false;
+    const fetchOnce = async () => {
+      try {
+        const lb = await getLeaderboard(token, team.id, { metric, window: window_ });
+        if (!cancelled) {
+          setLeaderboard(lb);
+          setLoading(false);
+        }
+      } catch (e) {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    fetchOnce();
+    const id = setInterval(fetchOnce, 10_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [token, team?.id, metric, window_]);
+
+  if (!team) {
+    return <div className="dashboard"><div className="dashboard-empty">팀이 없어요.</div></div>;
+  }
+
+  return (
+    <div className="dashboard">
+      <div className="dashboard-head">
+        <div className="dashboard-head-row">
+          <div>
+            <div className="dashboard-title"><span aria-hidden="true">🏆</span> {team.name} · 토큰 랭킹</div>
+            <div className="dashboard-subtitle">친구들이 오늘 얼마나 토큰을 썼는지</div>
+          </div>
+          {onClose && (
+            <button className="dashboard-close" onClick={onClose} title="메인으로 돌아가기">←</button>
+          )}
+        </div>
+      </div>
+      <div className="dashboard-toolbar">
+        <div className="seg" role="group" aria-label="기간">
+          <button className={window_ === 'today' ? 'active' : ''} onClick={() => setWindow('today')}>오늘</button>
+          <button disabled title="다음 단계에서 추가됨">7일</button>
+          <button disabled title="다음 단계에서 추가됨">30일</button>
+        </div>
+        <div className="seg" role="group" aria-label="기준">
+          <button className={metric === 'tokens' ? 'active' : ''} onClick={() => setMetric('tokens')}>토큰</button>
+          <button disabled title="다음 단계에서 추가됨">활동</button>
+          <button disabled title="다음 단계에서 추가됨">도구</button>
+        </div>
+      </div>
+      <div className="dashboard-list">
+        {loading && leaderboard.length === 0 && (
+          <div className="dashboard-empty">불러오는 중…</div>
+        )}
+        {!loading && leaderboard.length === 0 && (
+          <div className="dashboard-empty">아직 활동이 없어요.</div>
+        )}
+        {leaderboard.map((row) => {
+          const isMe = row.userId === myUserId;
+          const isZero = !row.score || row.score <= 0;
+          const rankCls = row.rank === 1 ? 'r1' : row.rank === 2 ? 'r2' : row.rank === 3 ? 'r3' : '';
+          return (
+            <div
+              key={row.userId}
+              className={`dashboard-row ${isMe ? 'me' : ''} ${isZero ? 'zero' : ''}`}
+            >
+              <div className={`dashboard-rank ${rankCls}`}>
+                {row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : row.rank === 3 ? '🥉' : `${row.rank}.`}
+              </div>
+              <Avatar name={row.displayName} seed={row.userId} size={32} url={row.avatarUrl} />
+              <div className="dashboard-name">
+                {row.displayName}
+                {isMe && <span className="me-tag">나</span>}
+              </div>
+              <div className="dashboard-score">
+                {row.score.toLocaleString()}
               </div>
             </div>
           );
