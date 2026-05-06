@@ -1,0 +1,62 @@
+# desktop-v* 태그 push 시 Electron Windows 설치 파일 자동 빌드 + GitHub Release 등록.
+# 사용법:
+#   1) GitHub repo Settings → Secrets and variables → Actions (publish-agent.yml과 공유)
+#      - Variables: VITE_MOHANI_BACKEND_URL (예: https://mohani.onrender.com)
+#      - Secrets:   VITE_IMGBB_API_KEY
+#   2) 로컬에서 `git tag desktop-v0.1.0 && git push origin desktop-v0.1.0`
+#   3) Actions 탭에서 빌드 확인 → Releases 탭에서 다운로드
+#
+# Windows runner는 관리자 권한이라 winCodeSign 심링크 추출 OK
+# (로컬 Windows에서 NSIS 빌드 실패하던 문제 우회).
+name: Release desktop
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag suffix (예: 0.1.0). 누락 시 커밋 SHA 사용.'
+        required: false
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install electron deps
+        working-directory: electron
+        run: npm ci
+
+      - name: Build Windows installer (NSIS)
+        working-directory: electron
+        env:
+          VITE_MOHANI_BACKEND_URL: ${{ vars.VITE_MOHANI_BACKEND_URL }}
+          VITE_IMGBB_API_KEY: ${{ secrets.VITE_IMGBB_API_KEY }}
+        run: npm run dist:win
+
+      - name: List release artifacts
+        working-directory: electron
+        shell: pwsh
+        run: Get-ChildItem release -Recurse -File | Select-Object FullName, Length
+
+      - name: Create GitHub Release with installer
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Mohani Desktop ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            electron/release/*.exe
+            electron/release/*.exe.blockmap
+            electron/release/latest.yml
