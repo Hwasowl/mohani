@@ -237,3 +237,33 @@ describe('maskFirstLine — H4 신규 패턴', () => {
     expect(hits).toContain('PASSWORD');
   });
 });
+
+// 0.1.12 — 추가 service-specific 토큰 (사용자 도메인이 Claude/Anthropic 중심)
+describe('maskFirstLine — 0.1.12 신규 패턴', () => {
+  it('redacts Anthropic API key (sk-ant-)', () => {
+    const { masked, hits } = maskFirstLine('sk-ant-api03-FAKETESTONLYFAKETESTONLYFAKETESTONLY');
+    expect(masked).toContain('●●●ANTHROPIC_KEY●●●');
+    expect(hits).toContain('ANTHROPIC_KEY');
+  });
+
+  it('Anthropic key takes precedence over OpenAI rule (sk- prefix collision)', () => {
+    // sk-ant-... 는 OPENAI_KEY 정규식에도 매칭되지만 ANTHROPIC_KEY가 먼저 처리되어야 함.
+    const { masked, hits } = maskFirstLine('key sk-ant-api03-FAKETESTONLYFAKETESTONLYFAKETESTONLY');
+    expect(masked).toContain('●●●ANTHROPIC_KEY●●●');
+    expect(masked).not.toContain('●●●OPENAI_KEY●●●');
+    expect(hits).toContain('ANTHROPIC_KEY');
+  });
+
+  it('redacts HuggingFace token (hf_)', () => {
+    const { masked, hits } = maskFirstLine('hf_FAKETESTONLYFAKETESTONLYFAKETESTONLYFAKE');
+    expect(masked).toContain('●●●HF_TOKEN●●●');
+    expect(hits).toContain('HF_TOKEN');
+  });
+
+  it('redacts GitHub fine-grained PAT (github_pat_)', () => {
+    const { masked, hits } = maskFirstLine(
+      'github_pat_FAKETESTONLY11111111111_FAKETESTONLYFAKETESTONLYFAKETESTONLYFAKETEST');
+    expect(masked).toContain('●●●GITHUB_FINE_PAT●●●');
+    expect(hits).toContain('GITHUB_FINE_PAT');
+  });
+});

@@ -1,6 +1,7 @@
 package com.mohani.global.config;
 
 import com.mohani.global.auth.JwtAuthFilter;
+import java.util.Arrays;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,17 +43,37 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cfg = new CorsConfiguration();
-        // 데모/dev: Electron renderer(localhost:5173, file://), 친구 PC 접속 등 모두 허용.
-        // 운영 시 화이트리스트로 좁힐 것.
-        cfg.setAllowedOriginPatterns(List.of("*"));
+        // H2 (0.1.12): Electron 전용 클라이언트 — packaged는 file:// (Origin "null"),
+        // dev는 localhost:5173. 임의 웹 origin이 사용자 자격으로 호출하던 표면(*+credentials) 제거.
+        // 외부 웹 클라이언트가 추가되면 MOHANI_ALLOWED_ORIGINS env로 명시 (콤마 구분).
+        cfg.setAllowedOriginPatterns(allowedOrigins());
         cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        cfg.setAllowedHeaders(List.of("*"));
+        cfg.setAllowedHeaders(List.of("Authorization", "Content-Type"));
         cfg.setExposedHeaders(List.of("Authorization"));
-        cfg.setAllowCredentials(true);
+        // JWT는 Authorization 헤더로 — 쿠키 자격증명 불필요. credentials false로 CSRF 표면 추가 축소.
+        cfg.setAllowCredentials(false);
         cfg.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource src = new UrlBasedCorsConfigurationSource();
         src.registerCorsConfiguration("/**", cfg);
         return src;
+    }
+
+    // Electron file:// 페이지는 Origin 헤더를 "null" 또는 file://* 로 보낸다 (Chromium 버전별).
+    // 두 변형 모두 허용. localhost 5173은 vite dev 서버.
+    static List<String> allowedOrigins() {
+        String env = System.getenv("MOHANI_ALLOWED_ORIGINS");
+        if (env != null && !env.isBlank()) {
+            return Arrays.stream(env.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+        }
+        return List.of(
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "file://*",
+            "null"
+        );
     }
 }

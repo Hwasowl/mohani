@@ -64,10 +64,16 @@ const PATTERNS = [
   },
   // GitHub Personal Access Token / OAuth / app token (ghp_, gho_, ghu_, ghs_, ghr_)
   { name: 'GITHUB_PAT', re: /\bgh[pousr]_[A-Za-z0-9]{30,}\b/g, replace: '●●●GITHUB_PAT●●●' },
+  // GitHub fine-grained PAT (github_pat_...)
+  { name: 'GITHUB_FINE_PAT', re: /\bgithub_pat_[A-Za-z0-9_]{50,}\b/g, replace: '●●●GITHUB_FINE_PAT●●●' },
   // Slack token (xoxb, xoxa, xoxp, xoxr, xoxs)
   { name: 'SLACK_TOKEN', re: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g, replace: '●●●SLACK_TOKEN●●●' },
-  // OpenAI API key (sk-... or sk-proj-...)
+  // Anthropic API key (sk-ant-...) — OPENAI_KEY 정규식이 sk- 접두까지 잡으니 반드시 그 앞에 둔다.
+  { name: 'ANTHROPIC_KEY', re: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g, replace: '●●●ANTHROPIC_KEY●●●' },
+  // OpenAI API key (sk-... or sk-proj-...) — sk-ant-는 위에서 먼저 처리되므로 안전하게 통과.
   { name: 'OPENAI_KEY', re: /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/g, replace: '●●●OPENAI_KEY●●●' },
+  // HuggingFace user/access token (hf_...)
+  { name: 'HF_TOKEN', re: /\bhf_[A-Za-z0-9]{30,}\b/g, replace: '●●●HF_TOKEN●●●' },
   // Stripe live keys (sk_live_, pk_live_, rk_live_)
   { name: 'STRIPE_KEY', re: /\b(?:sk|pk|rk)_live_[A-Za-z0-9]{20,}\b/g, replace: '●●●STRIPE_KEY●●●' },
   // 신용카드 (13-19 digits with optional - or space separators) — luhn 미검증, 보수적

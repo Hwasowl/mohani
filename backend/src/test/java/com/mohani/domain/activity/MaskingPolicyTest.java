@@ -203,4 +203,32 @@ class MaskingPolicyTest {
     void detectSuspicious_flagsUrlEncodedPassword() {
         assertThat(p.detectSuspicious("password%3Dhunter2supersecret")).contains("PASSWORD");
     }
+
+    // 0.1.12 — 추가 service-specific 토큰
+    @Test
+    void enforceFirstLine_redactsAnthropicKey() {
+        assertThat(p.enforceFirstLine("sk-ant-api03-FAKETESTONLYFAKETESTONLYFAKETESTONLY"))
+            .contains("●●●ANTHROPIC_KEY●●●");
+    }
+
+    @Test
+    void enforceFirstLine_anthropicTakesPrecedenceOverOpenAi() {
+        // sk-ant-... 는 OPENAI_KEY 정규식에도 매칭되지만 ANTHROPIC_KEY가 먼저 처리되어야 함.
+        String redacted = p.enforceFirstLine("key sk-ant-api03-FAKETESTONLYFAKETESTONLYFAKETESTONLY");
+        assertThat(redacted).contains("●●●ANTHROPIC_KEY●●●");
+        assertThat(redacted).doesNotContain("●●●OPENAI_KEY●●●");
+    }
+
+    @Test
+    void enforceFirstLine_redactsHuggingFaceToken() {
+        assertThat(p.enforceFirstLine("hf_FAKETESTONLYFAKETESTONLYFAKETESTONLYFAKE"))
+            .contains("●●●HF_TOKEN●●●");
+    }
+
+    @Test
+    void enforceFirstLine_redactsGithubFineGrainedPat() {
+        assertThat(p.enforceFirstLine(
+            "github_pat_FAKETESTONLY11111111111_FAKETESTONLYFAKETESTONLYFAKETESTONLYFAKETEST"))
+            .contains("●●●GITHUB_FINE_PAT●●●");
+    }
 }

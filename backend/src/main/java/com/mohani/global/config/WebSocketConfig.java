@@ -22,7 +22,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint("/ws").setAllowedOriginPatterns("*"); // 데모: 모든 origin 허용
+        // H2 (0.1.12): Electron 전용 — REST CORS와 동일 화이트리스트 사용. 와일드카드(*) 제거.
+        registry.addEndpoint("/ws")
+            .setAllowedOriginPatterns(SecurityConfig.allowedOrigins().toArray(new String[0]));
     }
 
     @Override

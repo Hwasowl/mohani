@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { homedir, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
 const DEFAULT_DIR = join(homedir(), '.mohani');
 const DEFAULT_FILE = join(DEFAULT_DIR, 'config.json');
@@ -39,9 +40,32 @@ export function load(path = DEFAULT_FILE) {
 export function save(config, path = DEFAULT_FILE) {
   ensureDir(path);
   writeFileSync(path, JSON.stringify(config, null, 2) + '\n', 'utf8');
-  // POSIX에서만 0600. Windows는 ACL이 있어 chmod 무의미하지만 fs.chmod는 no-op처럼 동작 → 안전.
-  if (platform() !== 'win32') {
+  if (platform() === 'win32') {
+    // M2 (0.1.12): 같은 머신의 다른 사용자가 localSecret/JWT를 평문으로 못 읽도록 ACL을 owner-only로 잠근다.
+    // 멀티유저 PC, 가족 공용, RDP 공유 시나리오에서의 secret 노출을 차단.
+    // icacls는 Windows 10/11 기본 포함. 실패해도 정상 동작은 막지 않음(파일은 이미 저장됨).
+    lockdownWindowsAcl(path);
+  } else {
     try { chmodSync(path, 0o600); } catch {}
+  }
+}
+
+// 사용자명에 영숫자/도메인 구분자만 허용 — execFile 인자라 shell injection은 없지만
+// icacls가 받아들이는 형식만 통과시켜 옵션 인젝션도 차단.
+const SAFE_USERNAME_RE = /^[A-Za-z0-9._\- ]{1,128}$/;
+
+function lockdownWindowsAcl(path) {
+  const user = process.env.USERNAME;
+  if (!user || !SAFE_USERNAME_RE.test(user)) return;
+  try {
+    // /inheritance:r — 부모로부터 상속된 ACE 제거. /grant:r — 기존 ACE 교체.
+    execFileSync('icacls', [path, '/inheritance:r', '/grant:r', `${user}:F`], {
+      stdio: 'ignore',
+      windowsHide: true,
+      timeout: 5000,
+    });
+  } catch {
+    // icacls 부재/실패 — secret 보호가 약해지지만 데몬 동작은 유지.
   }
 }
 

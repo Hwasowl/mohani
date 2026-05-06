@@ -79,6 +79,17 @@ public class StompAuthInterceptor implements ChannelInterceptor {
             return message;
         }
 
+        if (StompCommand.SEND.equals(acc.getCommand())) {
+            // H1 (0.1.12): 클라이언트가 /topic, /queue로 직접 SEND 하면 SimpleBroker가 controller를
+            // 거치지 않고 그대로 fanout — userId/displayName/avatarUrl 위조 메시지 송신 가능.
+            // /app prefix(MessageMapping)로의 SEND만 허용해 컨트롤러 검증 게이트를 강제한다.
+            String dest = acc.getDestination();
+            if (dest != null && (dest.startsWith("/topic/") || dest.startsWith("/queue/"))) {
+                throw new MessageDeliveryException("send denied: direct broker destination forbidden");
+            }
+            return message;
+        }
+
         return message;
     }
 

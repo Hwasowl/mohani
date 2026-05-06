@@ -63,6 +63,16 @@ class StompAuthInterceptorTest {
         return acc;
     }
 
+    private static StompHeaderAccessor send(String destination, Long userId) {
+        StompHeaderAccessor acc = StompHeaderAccessor.create(StompCommand.SEND);
+        acc.setDestination(destination);
+        if (userId != null) {
+            AuthenticatedUser u = new AuthenticatedUser(userId);
+            acc.setUser(new UsernamePasswordAuthenticationToken(u, "tok", List.of()));
+        }
+        return acc;
+    }
+
     private static Team teamWithId(long id, String code) {
         Team t = new Team() {};
         // Team 기본 생성자가 protected라 reflection으로 id 주입.
@@ -175,5 +185,30 @@ class StompAuthInterceptorTest {
         StompHeaderAccessor acc = subscribe("/topic/team/ZZZZZZ", 42L);
         assertThatThrownBy(() -> interceptor.preSend(buildMessage(acc), null))
             .isInstanceOf(MessageDeliveryException.class);
+    }
+
+    // H1 (0.1.12): SEND 직접 broker destination 차단 — controller 우회 위조 메시지 방지
+    @Test
+    void send_directlyToTopic_isDenied() {
+        StompHeaderAccessor acc = send("/topic/team/ABC123/chat", 42L);
+        assertThatThrownBy(() -> interceptor.preSend(buildMessage(acc), null))
+            .isInstanceOf(MessageDeliveryException.class)
+            .hasMessageContaining("direct broker destination forbidden");
+    }
+
+    @Test
+    void send_directlyToQueue_isDenied() {
+        StompHeaderAccessor acc = send("/queue/private/42", 42L);
+        assertThatThrownBy(() -> interceptor.preSend(buildMessage(acc), null))
+            .isInstanceOf(MessageDeliveryException.class)
+            .hasMessageContaining("direct broker destination forbidden");
+    }
+
+    @Test
+    void send_toAppPrefix_isAllowed() {
+        // /app/...은 controller(@MessageMapping)로 라우팅됨 — 컨트롤러 안에서 멤버십 검증 수행.
+        StompHeaderAccessor acc = send("/app/team/ABC123/chat", 42L);
+        Message<?> result = interceptor.preSend(buildMessage(acc), null);
+        assertThat(result).isNotNull();
     }
 }

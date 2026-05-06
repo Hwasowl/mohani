@@ -1,5 +1,10 @@
 # 테스트 전용 오버라이드. application.yml에서 환경변수 강제하는 secret을 테스트용 강한 값으로 주입.
 # WEAK_SECRET_PREFIXES (dev-secret/change-me/changeme/example/test-secret) 어디에도 안 걸림.
+spring:
+  datasource:
+    # 단위/슬라이스 테스트에서 DataSource bean이 placeholder 해결 못 해 부팅 실패하는 것을 막음.
+    # 실제 DB 접속하지 않는 테스트(@MockBean 등)에선 어차피 사용되지 않음.
+    password: test-only-not-a-real-secret
 mohani:
   jwt:
     secret: 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a

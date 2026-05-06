@@ -5,7 +5,10 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/mohani
     username: mohani
-    password: mohani
+    # H3 (0.1.12): 모든 환경에서 환경변수 강제 — 미설정 시 부팅 실패.
+    # MOHANI_JWT_SECRET 패턴과 동일. 로컬 dev는 IDE run config 또는 shell env로 'mohani' 주입.
+    # Render는 SPRING_DATASOURCE_PASSWORD가 이미 강한 값으로 설정되어 있으므로 변경 없이 동작.
+    password: ${SPRING_DATASOURCE_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
   jpa:
