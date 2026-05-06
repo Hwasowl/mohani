@@ -504,6 +504,13 @@ function MainApp() {
     );
   }
 
+  const togglePrivacy = async () => {
+    const next = !agentState?.state?.isPrivate;
+    await setAgentPrivacy(next);
+    const r = await getAgentState();
+    setAgentState(r);
+  };
+
   return (
     <Shell
       me={me}
@@ -517,15 +524,7 @@ function MainApp() {
       }}
       onAddTeam={() => setDialog('team')}
       onLeaveTeam={() => setDialog('leave')}
-      onRename={() => setDialog('rename')}
-      onChangeAvatar={() => setDialog('avatar')}
       agent={agentState}
-      onPrivacyToggle={async () => {
-        const next = !agentState?.state?.isPrivate;
-        await setAgentPrivacy(next);
-        const r = await getAgentState();
-        setAgentState(r);
-      }}
       onLogout={() => {
         session.clear();
         setMe(null); setTeams([]); setActiveTeam(null);
@@ -539,6 +538,7 @@ function MainApp() {
       }}
       dashboardOpen={view === 'dashboard'}
       onToggleDashboard={() => setView((v) => v === 'dashboard' ? 'main' : 'dashboard')}
+      onOpenSettings={() => setView('settings')}
     >
       {view === 'dashboard' ? (
         <main className="content content-single">
@@ -547,6 +547,16 @@ function MainApp() {
             team={activeTeam}
             myUserId={me.userId}
             onClose={() => setView('main')}
+          />
+        </main>
+      ) : view === 'settings' ? (
+        <main className="content content-single">
+          <SettingsView
+            agent={agentState}
+            onClose={() => setView('main')}
+            onChangeNickname={() => setDialog('rename')}
+            onChangeAvatar={() => setDialog('avatar')}
+            onTogglePrivacy={togglePrivacy}
           />
         </main>
       ) : (
@@ -662,7 +672,7 @@ function MainApp() {
   );
 }
 
-function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, onChangeAvatar, agent, onPrivacyToggle, onLogout, chat, dashboardOpen, onToggleDashboard }) {
+function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, agent, onLogout, chat, dashboardOpen, onToggleDashboard, onOpenSettings }) {
   return (
     <div className="app">
       <Header
@@ -672,14 +682,12 @@ function Shell({ children, me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam
         onSelectTeam={onSelectTeam}
         onAddTeam={onAddTeam}
         onLeaveTeam={onLeaveTeam}
-        onRename={onRename}
-        onChangeAvatar={onChangeAvatar}
         agent={agent}
-        onPrivacyToggle={onPrivacyToggle}
         onLogout={onLogout}
         chat={chat}
         dashboardOpen={dashboardOpen}
         onToggleDashboard={onToggleDashboard}
+        onOpenSettings={onOpenSettings}
       />
       {children}
     </div>
@@ -714,7 +722,7 @@ function DashboardToggleButton({ active, onClick }) {
   );
 }
 
-function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRename, onChangeAvatar, agent, onPrivacyToggle, onLogout, chat, dashboardOpen, onToggleDashboard }) {
+function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, agent, onLogout, chat, dashboardOpen, onToggleDashboard, onOpenSettings }) {
   const userMenu = usePopover();
   const teamMenu = usePopover();
   const isPrivate = agent?.state?.isPrivate;
@@ -795,24 +803,9 @@ function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, onRenam
           </button>
           {userMenu.open && (
             <div className="menu">
-              {onRename && (
-                <button className="menu-item" onClick={() => { onRename(); userMenu.setOpen(false); }}>
-                  닉네임 변경
-                </button>
-              )}
-              {onChangeAvatar && (
-                <button className="menu-item" onClick={() => { onChangeAvatar(); userMenu.setOpen(false); }}>
-                  프로필 사진
-                </button>
-              )}
-              {onPrivacyToggle && (
-                <button className="menu-item" onClick={() => { onPrivacyToggle(); userMenu.setOpen(false); }}>
-                  {isPrivate ? '비공개 해제' : '비공개로 전환'}
-                </button>
-              )}
-              {typeof window !== 'undefined' && window.mohaniIpc?.toggleWidget && (
-                <button className="menu-item" onClick={() => { window.mohaniIpc.toggleWidget(); userMenu.setOpen(false); }}>
-                  미니 위젯 보기/숨기기
+              {onOpenSettings && (
+                <button className="menu-item" onClick={() => { onOpenSettings(); userMenu.setOpen(false); }}>
+                  환경설정
                 </button>
               )}
               {onLogout && (
@@ -2123,6 +2116,110 @@ function LeaderboardView({ token, team, myUserId, onClose }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function SettingsRow({ label, description, action }) {
+  return (
+    <div className="settings-row">
+      <div className="settings-row-text">
+        <div className="settings-row-label">{label}</div>
+        {description && <div className="settings-row-desc">{description}</div>}
+      </div>
+      <div className="settings-row-action">{action}</div>
+    </div>
+  );
+}
+
+function ToggleSwitch({ on, onChange, ariaLabel }) {
+  return (
+    <button
+      className={`toggle-switch ${on ? 'on' : ''}`}
+      onClick={() => onChange?.(!on)}
+      role="switch"
+      aria-checked={!!on}
+      aria-label={ariaLabel}
+    >
+      <span className="toggle-thumb" />
+    </button>
+  );
+}
+
+function SettingsView({ agent, onClose, onChangeNickname, onChangeAvatar, onTogglePrivacy }) {
+  const isPrivate = !!agent?.state?.isPrivate;
+  const hasWidgetIpc = typeof window !== 'undefined' && !!window.mohaniIpc?.toggleWidget;
+
+  return (
+    <div className="settings">
+      <div className="settings-head">
+        <div className="settings-head-row">
+          <div>
+            <div className="settings-title">환경설정</div>
+            <div className="settings-subtitle">계정·공유 정책·앱 동작을 조정합니다</div>
+          </div>
+          {onClose && (
+            <button className="settings-close" onClick={onClose} title="메인으로 돌아가기">←</button>
+          )}
+        </div>
+      </div>
+
+      <div className="settings-body">
+        <section className="settings-section">
+          <div className="settings-section-title">계정</div>
+          <SettingsRow
+            label="닉네임 변경"
+            description="팀원 화면에 표시되는 이름을 바꿉니다"
+            action={
+              <button className="settings-btn" onClick={onChangeNickname}>변경</button>
+            }
+          />
+          <SettingsRow
+            label="프로필 사진"
+            description="팀원 그리드와 채팅에 사용됩니다"
+            action={
+              <button className="settings-btn" onClick={onChangeAvatar}>변경</button>
+            }
+          />
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-title">활동 공유</div>
+          <SettingsRow
+            label="비공개 모드"
+            description={
+              isPrivate
+                ? '활동이 친구들에게 보이지 않습니다 (해제하면 다음 활동부터 다시 노출)'
+                : '활동을 친구들과 공유합니다 (켜면 즉시 노출 차단)'
+            }
+            action={
+              <ToggleSwitch
+                on={isPrivate}
+                onChange={onTogglePrivacy}
+                ariaLabel="비공개 모드 토글"
+              />
+            }
+          />
+        </section>
+
+        {hasWidgetIpc && (
+          <section className="settings-section">
+            <div className="settings-section-title">앱</div>
+            <SettingsRow
+              label="미니 위젯"
+              description="화면 우상단에 떠있는 작은 창으로 친구 활동을 봅니다"
+              action={
+                <button
+                  className="settings-btn"
+                  onClick={() => window.mohaniIpc?.toggleWidget?.()}
+                >
+                  보기/숨기기
+                </button>
+              }
+            />
+          </section>
+        )}
       </div>
     </div>
   );

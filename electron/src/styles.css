@@ -1393,6 +1393,135 @@ button { font-family: inherit; }
 .dashboard-toggle-label { letter-spacing: -0.01em; }
 
 /* 친구 그리드 카드의 1등 표시 — 카드 우상단 왕관 + 카드 강조 테두리 */
+/* ───── 환경설정 (인라인 view) ───── */
+.settings {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.settings-head {
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.settings-head-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+}
+.settings-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.settings-subtitle {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.settings-close {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-dim);
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.settings-close:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+}
+.settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px 32px;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+.settings-section {
+  margin-bottom: 20px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.settings-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-mute);
+  padding: 12px 16px 8px;
+}
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255,255,255,0.04);
+}
+.settings-row:first-of-type { border-top: 0; }
+.settings-row-text { min-width: 0; flex: 1; }
+.settings-row-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+.settings-row-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+.settings-row-action { flex-shrink: 0; }
+.settings-btn {
+  padding: 6px 14px;
+  background: rgba(124,156,255,0.10);
+  border: 1px solid rgba(124,156,255,0.30);
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.settings-btn:hover {
+  background: rgba(124,156,255,0.18);
+  border-color: rgba(124,156,255,0.45);
+}
+
+/* iOS 스타일 toggle switch */
+.toggle-switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.12);
+  cursor: pointer;
+  transition: background .18s, border-color .18s;
+  padding: 0;
+  flex-shrink: 0;
+}
+.toggle-switch .toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px; height: 16px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  transition: transform .18s ease;
+}
+.toggle-switch.on {
+  background: rgba(248, 113, 113, 0.55);
+  border-color: rgba(248, 113, 113, 0.70);
+}
+.toggle-switch.on .toggle-thumb {
+  transform: translateX(18px);
+}
+
 .member-card { position: relative; }
 .member-card.is-leader {
   border-color: rgba(251, 191, 36, 0.55);
