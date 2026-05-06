@@ -14,6 +14,8 @@ public record TeamFeedMessage(
     String cliKind,
     long todayTokens,
     long todayDurationSec,
+    boolean questionHidden,
+    boolean answerHidden,
     OffsetDateTime occurredAt
 ) {
 }

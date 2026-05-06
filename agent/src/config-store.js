@@ -15,6 +15,10 @@ const DEFAULTS = Object.freeze({
   userId: null,
   displayName: null,
   isPrivate: false,
+  // 본문 숨김 토글 — 활동 자체는 송신하되 prompt/answer 본문만 null로 redact.
+  // 영구 저장 — 한 번 켜두고 잊어도 새 활동에 자동 적용 (보안 fail-safe).
+  hideQuestion: false,
+  hideAnswer: false,
   blacklistedDirs: [],
   // H1: 로컬 데몬 endpoint 인증용 무작위 secret. 첫 기동 시 생성.
   // 같은 머신의 Electron만 (preload IPC 통해) 알 수 있어 LAN/CSRF 공격 차단.

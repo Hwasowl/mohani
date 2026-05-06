@@ -115,10 +115,12 @@ ipcMain.handle('mohani:open-main', () => {
 ipcMain.handle('mohani:get-local-secret', () => readLocalSecret());
 
 // 새 채팅 도착 시 작업표시줄 점멸 — 렌더러가 호출 (창 미포커스일 때만 의미 있음).
+// 채팅 팝업이 열려있으면 메인창 점멸은 무시 — 알림은 채팅창에서만.
 ipcMain.handle('mohani:flash-frame', (e, on) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (!win || win.isDestroyed()) return;
-  if (on && win.isFocused()) return; // 이미 포커스면 의미 없음
+  if (on && chatWindow && !chatWindow.isDestroyed() && win === mainWindow) return;
+  if (on && win.isFocused()) return;
   win.flashFrame(!!on);
 });
 

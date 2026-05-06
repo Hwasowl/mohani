@@ -16,6 +16,7 @@ import {
   pushAgentSession,
   session,
   setAgentPrivacy,
+  setAgentVisibility,
   setBackendUrl,
   getBackendUrl,
   updateMyAvatar,
@@ -239,10 +240,14 @@ function MainApp() {
         // 피드에서 사용자별 최근 UserPromptSubmit 첫 줄을 뽑아낸다 — 카드의 마지막 활동 표시용.
         const latestPromptByUser = {};
         for (const it of feedItems) {
-          if (it.eventKind === 'UserPromptSubmit' && it.promptFirstLine
+          // questionHidden=true row는 promptFirstLine이 null이지만 카드에는
+          // "🔒 숨김처리됨" placeholder를 보여줘야 하므로 같이 픽업.
+          if (it.eventKind === 'UserPromptSubmit'
+              && (it.promptFirstLine || it.questionHidden)
               && !latestPromptByUser[it.userId]) {
             latestPromptByUser[it.userId] = {
               promptFirstLine: it.promptFirstLine,
+              questionHidden: !!it.questionHidden,
               cliKind: it.cliKind ?? null,
               occurredAt: it.occurredAt,
             };
@@ -263,6 +268,7 @@ function MainApp() {
               lastSeen: lastSeenMs ?? next[s.userId]?.lastSeen ?? null,
               // WSS로 더 최신 promptFirstLine을 이미 받았다면 보존, 아니면 피드에서 뽑은 걸 사용
               promptFirstLine: next[s.userId]?.promptFirstLine ?? lp?.promptFirstLine ?? null,
+              questionHidden: next[s.userId]?.questionHidden ?? lp?.questionHidden ?? false,
               cliKind: next[s.userId]?.cliKind ?? lp?.cliKind ?? null,
             };
           }
@@ -286,6 +292,8 @@ function MainApp() {
               avatarUrl: it.avatarUrl,
               promptFirstLine: it.promptFirstLine,
               assistantPreview: it.assistantPreview,
+              questionHidden: !!it.questionHidden,
+              answerHidden: !!it.answerHidden,
               toolUseCount: it.toolUseCount,
               responseTokens: it.responseTokens,
               cliKind: it.cliKind,
@@ -332,8 +340,9 @@ function MainApp() {
       token: me.token,
       teamCode,
       onMessage: (msg) => {
-        // 피드: UserPromptSubmit은 신규 prepend, Stop(답변 동봉)은 가장 최근의 같은 사용자 미응답 항목 update
-        if (msg.event === 'UserPromptSubmit' && msg.promptFirstLine) {
+        // 피드: UserPromptSubmit은 신규 prepend, Stop(답변 동봉)은 가장 최근의 같은 사용자 미응답 항목 update.
+        // questionHidden/answerHidden=true row는 본문 없이도 자리 표시 → 같이 통과시킨다.
+        if (msg.event === 'UserPromptSubmit' && (msg.promptFirstLine || msg.questionHidden)) {
           setFeedByTeam((prev) => {
             const cur = prev[teamCode] ?? [];
             return {
@@ -341,20 +350,23 @@ function MainApp() {
               [teamCode]: [{ ...msg, eventKind: 'UserPromptSubmit', _ts: Date.now() }, ...cur].slice(0, 30),
             };
           });
-        } else if (msg.event === 'Stop' && msg.assistantPreview) {
+        } else if (msg.event === 'Stop' && (msg.assistantPreview || msg.answerHidden)) {
           setFeedByTeam((prev) => {
             const cur = prev[teamCode] ?? [];
             // 같은 사용자 + cliKind의 가장 최근 미응답 항목 찾기
+            // (본문이 있거나 answerHidden이 이미 켜진 row는 "응답 받음"으로 간주 — 다시 attach 안 함)
             const idx = cur.findIndex((f) =>
               f.userId === msg.userId
               && f.cliKind === msg.cliKind
               && !f.assistantPreview
+              && !f.answerHidden
               && f.eventKind === 'UserPromptSubmit');
             if (idx === -1) return prev;
             const next = [...cur];
             next[idx] = {
               ...next[idx],
               assistantPreview: msg.assistantPreview,
+              answerHidden: !!msg.answerHidden,
               toolUseCount: msg.toolUseCount ?? next[idx].toolUseCount ?? 0,
               responseTokens: msg.responseTokens ?? next[idx].responseTokens ?? 0,
             };
@@ -370,6 +382,10 @@ function MainApp() {
               ...teamMap,
               [msg.userId]: {
                 promptFirstLine: msg.promptFirstLine ?? teamMap[msg.userId]?.promptFirstLine ?? null,
+                // questionHidden은 새 UserPromptSubmit에서만 의미가 있음 — 다른 이벤트는 직전 값 유지.
+                questionHidden: msg.event === 'UserPromptSubmit'
+                  ? !!msg.questionHidden
+                  : (teamMap[msg.userId]?.questionHidden ?? false),
                 todayTokens: msg.todayTokens,
                 todayDurationSec: msg.todayDurationSec,
                 lastSeen: Date.now(),
@@ -483,6 +499,12 @@ function MainApp() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  // 환경설정 토글 mutex — 한 변경(privacy/visibility)이 진행 중이면 추가 클릭 무시.
+  // 빠르게 두 번 클릭하거나 두 토글을 동시에 누를 때 발생하는 race + stale state 덮어쓰기 차단.
+  // 서버측은 이미 멱등(같은 값 여러 번 들어와도 동일 결과)이라 클라 게이트만 추가하면 충분.
+  // ⚠️ early return 위에 둔다 — Rules of Hooks: 매 렌더마다 동일한 순서로 호출되어야 함.
+  const toggleInflightRef = useRef(false);
+
   if (!me) {
     return (
       <Shell>
@@ -504,12 +526,32 @@ function MainApp() {
     );
   }
 
-  const togglePrivacy = async () => {
+  const withToggleLock = async (fn) => {
+    if (toggleInflightRef.current) return;
+    toggleInflightRef.current = true;
+    try {
+      await fn();
+      const r = await getAgentState();
+      setAgentState(r);
+    } finally {
+      toggleInflightRef.current = false;
+    }
+  };
+
+  const togglePrivacy = () => withToggleLock(async () => {
     const next = !agentState?.state?.isPrivate;
     await setAgentPrivacy(next);
-    const r = await getAgentState();
-    setAgentState(r);
-  };
+  });
+
+  const toggleHideQuestion = () => withToggleLock(async () => {
+    const next = !agentState?.state?.hideQuestion;
+    await setAgentVisibility({ hideQuestion: next });
+  });
+
+  const toggleHideAnswer = () => withToggleLock(async () => {
+    const next = !agentState?.state?.hideAnswer;
+    await setAgentVisibility({ hideAnswer: next });
+  });
 
   return (
     <Shell
@@ -557,6 +599,8 @@ function MainApp() {
             onChangeNickname={() => setDialog('rename')}
             onChangeAvatar={() => setDialog('avatar')}
             onTogglePrivacy={togglePrivacy}
+            onToggleHideQuestion={toggleHideQuestion}
+            onToggleHideAnswer={toggleHideAnswer}
           />
         </main>
       ) : (
@@ -726,6 +770,8 @@ function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, agent, 
   const userMenu = usePopover();
   const teamMenu = usePopover();
   const isPrivate = agent?.state?.isPrivate;
+  const hideQuestion = agent?.state?.hideQuestion;
+  const hideAnswer = agent?.state?.hideAnswer;
   const teamList = teams ?? [];
 
   return (
@@ -767,7 +813,12 @@ function Header({ me, team, teams, onSelectTeam, onAddTeam, onLeaveTeam, agent, 
             )}
           </div>
         )}
-        {isPrivate && <span className="status-chip private">비공개 모드</span>}
+        {isPrivate && <span className="status-chip private">오프라인 상태</span>}
+        {!isPrivate && (hideQuestion || hideAnswer) && (
+          <span className="status-chip muted" title="설정 → 환경설정 → 활동 공유">
+            🔒 {hideQuestion && hideAnswer ? '본문 숨김' : hideQuestion ? '질문 숨김' : '답변 숨김'}
+          </span>
+        )}
       </div>
       <div className="grow" />
       {me && team && (
@@ -1155,14 +1206,17 @@ function FriendGrid({ members, activity, loading, myUserId, leaderUserId, onSele
         const isMe = m.userId === myUserId;
         const isLeader = leaderUserId != null && m.userId === leaderUserId;
         const showSkeleton = loading && !a;
-        // 카드의 핵심 한 줄: 진행 중 작업 > 마지막 작업 > 빈 상태 메시지
-        const promptLine = a?.promptFirstLine
-          ? a.promptFirstLine
-          : active
-            ? '작업 중…'
-            : a?.lastSeen
-              ? '오늘 잠시 작업했어요. 클릭해서 활동 보기'
-              : '오늘은 아직 조용해요';
+        // 카드의 핵심 한 줄: 진행 중 작업 > 마지막 작업 > 빈 상태 메시지.
+        // questionHidden=true면 본문은 없지만 "🔒 숨김처리됨"으로 자리는 보여준다.
+        const promptLine = a?.questionHidden
+          ? '🔒 숨김처리된 질문'
+          : a?.promptFirstLine
+            ? a.promptFirstLine
+            : active
+              ? '작업 중…'
+              : a?.lastSeen
+                ? '오늘 잠시 작업했어요. 클릭해서 활동 보기'
+                : '오늘은 아직 조용해요';
         return (
           <article
             key={m.userId}
@@ -1191,7 +1245,7 @@ function FriendGrid({ members, activity, loading, myUserId, leaderUserId, onSele
               </div>
               <span className="card-chevron" aria-hidden="true">›</span>
             </header>
-            <p className={`prompt ${a?.promptFirstLine ? '' : 'prompt-muted'}`}>
+            <p className={`prompt ${a?.promptFirstLine || a?.questionHidden ? '' : 'prompt-muted'} ${a?.questionHidden ? 'prompt-hidden' : ''}`}>
               {showSkeleton ? <span className="skel-line" /> : promptLine}
             </p>
             <footer className="member-foot">
@@ -1266,9 +1320,12 @@ function MemberActivityDrawer({ token, team, member, stats, onClose, onError }) 
             <ul className="drawer-list">
               {items
                 .filter((it) => (it.promptFirstLine && it.promptFirstLine.length > 0)
-                              || (it.assistantPreview && it.assistantPreview.length > 0))
+                              || (it.assistantPreview && it.assistantPreview.length > 0)
+                              || it.questionHidden || it.answerHidden)
                 .map((it) => {
                 const open = expandedId === it.id;
+                const showQ = !!(it.promptFirstLine || it.questionHidden);
+                const showA = !!(it.assistantPreview || it.answerHidden);
                 return (
                   <li
                     key={it.id}
@@ -1277,19 +1334,23 @@ function MemberActivityDrawer({ token, team, member, stats, onClose, onError }) 
                   >
                     <div className="drawer-item-head">
                       <span className="drawer-item-time">{formatTime(it.occurredAt)}</span>
-                      {it.promptFirstLine && <span className="kind-badge q">질문</span>}
-                      {it.assistantPreview && <span className="kind-badge a">답변</span>}
+                      {showQ && <span className="kind-badge q">질문</span>}
+                      {showA && <span className="kind-badge a">답변</span>}
                       <CliBadge kind={it.cliKind} />
                       <span className="drawer-caret">{open ? '▾' : '▸'}</span>
                     </div>
-                    {it.promptFirstLine && (
-                      <div className="turn-q">
-                        <span className="turn-text">{it.promptFirstLine}</span>
+                    {showQ && (
+                      <div className={`turn-q ${it.questionHidden ? 'turn-hidden' : ''}`}>
+                        <span className="turn-text">
+                          {it.questionHidden ? '🔒 숨김처리된 질문' : it.promptFirstLine}
+                        </span>
                       </div>
                     )}
-                    {it.assistantPreview && (
-                      <div className="turn-a">
-                        <span className="turn-text">{it.assistantPreview}</span>
+                    {showA && (
+                      <div className={`turn-a ${it.answerHidden ? 'turn-hidden' : ''}`}>
+                        <span className="turn-text">
+                          {it.answerHidden ? '🔒 숨김처리된 답변' : it.assistantPreview}
+                        </span>
                       </div>
                     )}
                     {open && (
@@ -1428,14 +1489,31 @@ function ChatPanelBody({ messages, myUserId, typingNames = [], onSend, onTyping 
   const uploadTokenRef = useRef(null);
   const isAtBottomRef = useRef(true);
   const prevLenRef = useRef(messages.length);
+  // 프로그래매틱 스크롤(smooth) 진행 중에는 onScrollList의 중간 위치 보고를 무시.
+  // 안 그러면 스크롤 애니메이션 중 새 메시지가 도착했을 때 isAtBottom=false로 잘못 판정 → 자동 스크롤 누락.
+  const programmaticScrollRef = useRef(false);
+  const programmaticScrollTimerRef = useRef(null);
 
   const scrollToBottom = (smooth = true) => {
     const el = listRef.current;
     if (!el) return;
+    programmaticScrollRef.current = true;
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    if (programmaticScrollTimerRef.current) clearTimeout(programmaticScrollTimerRef.current);
+    // smooth scroll: 브라우저별 200~500ms. 안전 마진 600ms 후 플래그 해제 + 최종 위치 동기화.
+    programmaticScrollTimerRef.current = setTimeout(() => {
+      programmaticScrollRef.current = false;
+      const cur = listRef.current;
+      if (!cur) return;
+      const distance = cur.scrollHeight - cur.scrollTop - cur.clientHeight;
+      const atBottom = distance < 80;
+      isAtBottomRef.current = atBottom;
+      setIsAtBottom(atBottom);
+    }, smooth ? 600 : 50);
   };
 
   const onScrollList = () => {
+    if (programmaticScrollRef.current) return;
     const el = listRef.current;
     if (!el) return;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -1449,17 +1527,21 @@ function ChatPanelBody({ messages, myUserId, typingNames = [], onSend, onTyping 
   useEffect(() => {
     scrollToBottom(false);
     prevLenRef.current = messages.length;
+    return () => {
+      if (programmaticScrollTimerRef.current) clearTimeout(programmaticScrollTimerRef.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 메시지 추가 시: 본인이 보낸 거거나 이미 맨 아래면 자동 스크롤. 위로 올려서 읽는 중이면 그대로 두고 unseen 카운트 ↑
+  // programmaticScrollRef.current도 OK로 — 사용자가 ↓ 버튼을 눌러 따라가는 중이면 새 메시지도 같이 스크롤.
   useEffect(() => {
     const prev = prevLenRef.current;
     prevLenRef.current = messages.length;
     if (messages.length <= prev) return; // 새 메시지 없음
     const last = messages[messages.length - 1];
     const isMine = last && last.userId === myUserId;
-    if (isAtBottomRef.current || isMine) {
+    if (isAtBottomRef.current || isMine || programmaticScrollRef.current) {
       scrollToBottom(true);
       setUnseenCount(0);
     } else {
@@ -1776,16 +1858,20 @@ function FeedPanel({ feed, width, onResize, onClose }) {
                 <div className="feed-body">
                   <div className="feed-head">
                     <span className="feed-who">{f.displayName}</span>
-                    {f.promptFirstLine && <span className="kind-badge q">질문</span>}
-                    {f.assistantPreview && <span className="kind-badge a">답변</span>}
+                    {(f.promptFirstLine || f.questionHidden) && <span className="kind-badge q">질문</span>}
+                    {(f.assistantPreview || f.answerHidden) && <span className="kind-badge a">답변</span>}
                     <CliBadge kind={f.cliKind} />
                     <span className="feed-time">{relativeTime(f._ts)}</span>
                   </div>
-                  {f.promptFirstLine && (
-                    <div className={`feed-prompt ${open ? 'wrap' : ''}`}>{f.promptFirstLine}</div>
+                  {(f.promptFirstLine || f.questionHidden) && (
+                    <div className={`feed-prompt ${open ? 'wrap' : ''} ${f.questionHidden ? 'feed-hidden' : ''}`}>
+                      {f.questionHidden ? '🔒 숨김처리된 질문' : f.promptFirstLine}
+                    </div>
                   )}
-                  {f.assistantPreview && (
-                    <div className={`feed-answer ${open ? 'wrap' : ''}`}>{f.assistantPreview}</div>
+                  {(f.assistantPreview || f.answerHidden) && (
+                    <div className={`feed-answer ${open ? 'wrap' : ''} ${f.answerHidden ? 'feed-hidden' : ''}`}>
+                      {f.answerHidden ? '🔒 숨김처리된 답변' : f.assistantPreview}
+                    </div>
                   )}
                   {open && (
                     <div className="feed-detail">
@@ -2019,8 +2105,8 @@ function WidgetApp() {
               <Avatar name={m.displayName} seed={m.userId} size={22} ring={active} url={m.avatarUrl} />
               <div className="widget-text">
                 <div className="widget-name">{m.displayName}</div>
-                <div className="widget-prompt">
-                  {a?.promptFirstLine || (active ? '...' : '쉬는 중')}
+                <div className={`widget-prompt ${a?.questionHidden ? 'feed-hidden' : ''}`}>
+                  {a?.questionHidden ? '🔒 숨김' : (a?.promptFirstLine || (active ? '...' : '쉬는 중'))}
                 </div>
               </div>
             </div>
@@ -2147,8 +2233,11 @@ function ToggleSwitch({ on, onChange, ariaLabel }) {
   );
 }
 
-function SettingsView({ agent, onClose, onChangeNickname, onChangeAvatar, onTogglePrivacy }) {
+function SettingsView({ agent, onClose, onChangeNickname, onChangeAvatar,
+                        onTogglePrivacy, onToggleHideQuestion, onToggleHideAnswer }) {
   const isPrivate = !!agent?.state?.isPrivate;
+  const hideQuestion = !!agent?.state?.hideQuestion;
+  const hideAnswer = !!agent?.state?.hideAnswer;
   const hasWidgetIpc = typeof window !== 'undefined' && !!window.mohaniIpc?.toggleWidget;
 
   return (
@@ -2187,17 +2276,47 @@ function SettingsView({ agent, onClose, onChangeNickname, onChangeAvatar, onTogg
         <section className="settings-section">
           <div className="settings-section-title">활동 공유</div>
           <SettingsRow
-            label="비공개 모드"
+            label="오프라인 상태"
             description={
               isPrivate
-                ? '활동이 친구들에게 보이지 않습니다 (해제하면 다음 활동부터 다시 노출)'
+                ? '친구들에게 활동 자체가 보이지 않습니다 (자리·본문 모두 숨김)'
                 : '활동을 친구들과 공유합니다 (켜면 즉시 노출 차단)'
             }
             action={
               <ToggleSwitch
                 on={isPrivate}
                 onChange={onTogglePrivacy}
-                ariaLabel="비공개 모드 토글"
+                ariaLabel="오프라인 상태 토글"
+              />
+            }
+          />
+          <SettingsRow
+            label="질문 숨김"
+            description={
+              hideQuestion
+                ? '내 프롬프트(질문) 본문이 친구들에게 🔒로 표시됩니다 — 본문은 서버에 저장되지 않습니다'
+                : '내 프롬프트(질문) 본문이 친구들에게 그대로 보입니다'
+            }
+            action={
+              <ToggleSwitch
+                on={hideQuestion}
+                onChange={onToggleHideQuestion}
+                ariaLabel="질문 숨김 토글"
+              />
+            }
+          />
+          <SettingsRow
+            label="답변 숨김"
+            description={
+              hideAnswer
+                ? 'AI 답변 본문이 친구들에게 🔒로 표시됩니다 — 본문은 서버에 저장되지 않습니다'
+                : 'AI 답변 본문이 친구들에게 그대로 보입니다'
+            }
+            action={
+              <ToggleSwitch
+                on={hideAnswer}
+                onChange={onToggleHideAnswer}
+                ariaLabel="답변 숨김 토글"
               />
             }
           />

@@ -5,7 +5,7 @@ vi.mock('../src/config-store.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, save: vi.fn() };
 });
-import { createApp, listenWithFallback } from '../src/daemon.js';
+import { createApp, listen } from '../src/daemon.js';
 
 // H1 — 모든 보호 endpoint에 secret 헤더 필요. 테스트 헬퍼로 일관 주입.
 const TEST_SECRET = 'test-local-secret-32-bytes-padding-padding';
@@ -228,19 +228,150 @@ describe('daemon — /state/session (Electron 토큰 동기화)', () => {
   });
 });
 
-describe('daemon — port fallback', () => {
-  it('falls back to next port when primary is occupied', async () => {
+describe('daemon — /state/visibility (질문/답변 숨김 토글)', () => {
+  it('persists hideQuestion=true and refreshes config', async () => {
+    let savedSnapshot = null;
+    const cs = await import('../src/config-store.js');
+    cs.save.mockImplementationOnce((next) => { savedSnapshot = next; });
+
+    const refreshes = [];
+    const state = {
+      getConfig: () => ({ backendUrl: 'http://x', token: 'tok' }),
+      refreshConfig: () => refreshes.push(1),
+    };
+    const app = appWithSecret(state);
+    const res = await authed(request(app).post('/state/visibility')).send({ hideQuestion: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.hideQuestion).toBe(true);
+    expect(savedSnapshot.hideQuestion).toBe(true);
+    expect(refreshes).toHaveLength(1);
+  });
+
+  it('persists hideAnswer independently', async () => {
+    let savedSnapshot = null;
+    const cs = await import('../src/config-store.js');
+    cs.save.mockImplementationOnce((next) => { savedSnapshot = next; });
+
+    const state = { getConfig: () => ({ hideQuestion: true }), refreshConfig: () => {} };
+    const app = appWithSecret(state);
+    const res = await authed(request(app).post('/state/visibility')).send({ hideAnswer: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.hideAnswer).toBe(true);
+    // 기존 hideQuestion은 보존, 새 hideAnswer만 갱신
+    expect(savedSnapshot.hideQuestion).toBe(true);
+    expect(savedSnapshot.hideAnswer).toBe(true);
+  });
+
+  it('rejects /state/visibility without secret (CSRF 차단)', async () => {
+    const app = appWithSecret();
+    const res = await request(app).post('/state/visibility').send({ hideQuestion: true });
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /state exposes hide flags', async () => {
+    const state = {
+      getConfig: () => ({ hideQuestion: true, hideAnswer: false }),
+    };
+    const app = appWithSecret(state);
+    const res = await authed(request(app).get('/state'));
+    expect(res.status).toBe(200);
+    expect(res.body.hideQuestion).toBe(true);
+    expect(res.body.hideAnswer).toBe(false);
+  });
+});
+
+describe('daemon — visibility redact in /agent/event', () => {
+  it('hideQuestion=true redacts UserPromptSubmit prompt body before send', async () => {
+    const sent = [];
+    const transport = { send: async (e) => { sent.push(e); return { ok: true }; } };
+    const app = appWithSecret({
+      getConfig: () => ({ hideQuestion: true }),
+      transport,
+    });
+    await authed(request(app).post('/agent/event')).send({
+      event: 'UserPromptSubmit', prompt: '민감 질문 본문',
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].promptFirstLine).toBeNull();
+    expect(sent[0].promptFull).toBeNull();
+    expect(sent[0].questionHidden).toBe(true);
+    // 메타는 유지
+    expect(sent[0].event).toBe('UserPromptSubmit');
+  });
+
+  it('hideAnswer=true redacts assistant body derived from transcript', async () => {
+    const { writeFileSync, mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'mohani-test-'));
+    const transcriptPath = join(dir, 'conv.jsonl');
+    writeFileSync(transcriptPath, [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'hi' } }),
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: '민감한 답변 본문입니다' }],
+          usage: { input_tokens: 100, output_tokens: 50 },
+        },
+      }),
+    ].join('\n'));
+
+    const sent = [];
+    const transport = { send: async (e) => { sent.push(e); return { ok: true }; } };
+    const app = appWithSecret({
+      getConfig: () => ({ hideAnswer: true }),
+      transport,
+    });
+    await authed(request(app).post('/agent/event')).send({
+      event: 'Stop', session_id: 'sess-h', transcript_path: transcriptPath,
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].assistantPreview).toBeNull();
+    expect(sent[0].assistantFull).toBeNull();
+    expect(sent[0].answerHidden).toBe(true);
+    // 토큰은 보존 (사용자 명시 요구)
+    expect(sent[0].totalTokens).toBe(150);
+  });
+
+  it('isPrivate=true takes precedence over hideQuestion (활동 자체 차단)', async () => {
+    const sent = [];
+    const transport = { send: async (e) => { sent.push(e); return { ok: true }; } };
+    const app = appWithSecret({
+      getConfig: () => ({ isPrivate: true, hideQuestion: true }),
+      transport,
+    });
+    const res = await authed(request(app).post('/agent/event')).send({
+      event: 'UserPromptSubmit', prompt: 'x',
+    });
+    expect(res.body.dropped).toBe(true);
+    expect(res.body.reason).toBe('privacy_on');
+    expect(sent).toHaveLength(0); // 송신 자체 안 됨
+  });
+
+  it('no flags — payload sent as-is (회귀)', async () => {
+    const sent = [];
+    const transport = { send: async (e) => { sent.push(e); return { ok: true }; } };
+    const app = appWithSecret({ getConfig: () => ({}), transport });
+    await authed(request(app).post('/agent/event')).send({
+      event: 'UserPromptSubmit', prompt: '평범한 질문',
+    });
+    expect(sent[0].promptFirstLine).toBe('평범한 질문');
+    expect(sent[0].questionHidden).toBeUndefined();
+    expect(sent[0].answerHidden).toBeUndefined();
+  });
+});
+
+describe('daemon — listen', () => {
+  it('rejects when port is already occupied (no fallback)', async () => {
     const blocker = appWithSecret();
-    const blocked = await listenWithFallback(blocker, [34555, 34556, 34557]);
+    const blocked = await listen(blocker, 34555);
     try {
       const app = appWithSecret();
-      const result = await listenWithFallback(app, [blocked.port, 34556, 34557]);
-      try {
-        expect(result.port).not.toBe(blocked.port);
-        expect([34556, 34557]).toContain(result.port);
-      } finally {
-        await new Promise((r) => result.server.close(r));
-      }
+      await expect(listen(app, 34555)).rejects.toMatchObject({ code: 'EADDRINUSE' });
     } finally {
       await new Promise((r) => blocked.server.close(r));
     }
@@ -249,7 +380,7 @@ describe('daemon — port fallback', () => {
   // C1 회귀 — LAN(0.0.0.0) 바인딩되면 같은 LAN 공격자가 토큰/backendUrl 덮어쓰기 가능했음.
   it('binds only to 127.0.0.1 (not all interfaces)', async () => {
     const app = appWithSecret();
-    const { server, port } = await listenWithFallback(app, [44555, 44556, 44557]);
+    const { server, port } = await listen(app, 44555);
     try {
       const addr = server.address();
       expect(addr.address).toBe('127.0.0.1');

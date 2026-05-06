@@ -65,6 +65,13 @@ public class ActivityIngestService {
             return IngestResult.dropped("suspicious_after_mask", suspicious);
         }
 
+        // 2. 사용자가 켠 숨김 토글 — 본문 컬럼은 NULL로 강제(클라이언트 약속 안 믿고 서버측 방어).
+        //    플래그는 row에 영구 기록되어 클라이언트가 placeholder를 그릴 때 사용.
+        boolean questionHidden = Boolean.TRUE.equals(event.questionHidden());
+        boolean answerHidden = Boolean.TRUE.equals(event.answerHidden());
+        if (questionHidden) { firstLine = null; promptFull = null; }
+        if (answerHidden) { assistantPreview = null; assistantFull = null; }
+
         OffsetDateTime occurredAt = event.occurredAt() != null ? event.occurredAt() : OffsetDateTime.now();
         LocalDate day = occurredAt.atZoneSameInstant(ZoneId.systemDefault()).toLocalDate();
         String cliKind = event.cliKind() == null || event.cliKind().isBlank() ? "claude" : event.cliKind();
@@ -87,11 +94,11 @@ public class ActivityIngestService {
         boolean isStop = "Stop".equals(eventKind);
 
         // 3. 활동 로그 row 작성/갱신은 turn에 의미 있는 이벤트만 (UserPromptSubmit / Stop)
-        //    그 외 이벤트(PreToolUse 등)는 통계 + WSS 활동 표시만
+        //    questionHidden=true / answerHidden=true 인 row도 자리는 보여야 하므로 본문 NULL이라도 저장.
         int persistedRows = 0;
         for (TeamMember m : myTeams) {
             ActivityLog row = null;
-            if (isPrompt && firstLine != null && !firstLine.isEmpty()) {
+            if (isPrompt && (questionHidden || (firstLine != null && !firstLine.isEmpty()))) {
                 row = ActivityLog.builder()
                     .userId(userId)
                     .teamId(m.teamId())
@@ -100,6 +107,8 @@ public class ActivityIngestService {
                     .promptFull(promptFull)
                     .eventKind("UserPromptSubmit")
                     .cliKind(cliKind)
+                    .questionHidden(questionHidden)
+                    .answerHidden(false)
                     .build();
                 activities.save(row);
                 persistedRows++;
@@ -108,13 +117,14 @@ public class ActivityIngestService {
                 OffsetDateTime since = occurredAt.minus(TURN_MATCH_WINDOW);
                 List<ActivityLog> candidates = activities.findUnansweredTurns(
                     userId, m.teamId(), cliKind, since, PageRequest.of(0, 1));
-                if (!candidates.isEmpty() && (assistantPreview != null || assistantFull != null)) {
+                boolean hasAnswer = answerHidden || assistantPreview != null || assistantFull != null;
+                if (!candidates.isEmpty() && hasAnswer) {
                     ActivityLog target = candidates.get(0);
                     target.attachAssistantTurn(assistantPreview, assistantFull,
-                        toolUseCountOf(event), responseTokensOf(event));
+                        toolUseCountOf(event), responseTokensOf(event), answerHidden);
                     row = target;
                     persistedRows++;
-                } else if (assistantPreview != null) {
+                } else if (hasAnswer) {
                     // 짝맞는 prompt가 없어도 답변만으로도 의미 있을 수 있음 — 별도 row로 보존
                     row = ActivityLog.builder()
                         .userId(userId)
@@ -126,6 +136,8 @@ public class ActivityIngestService {
                         .responseTokens(responseTokensOf(event))
                         .eventKind("Stop")
                         .cliKind(cliKind)
+                        .questionHidden(false)
+                        .answerHidden(answerHidden)
                         .build();
                     activities.save(row);
                     persistedRows++;
@@ -137,6 +149,8 @@ public class ActivityIngestService {
             Team team = teams.findById(m.teamId()).orElseThrow();
             String broadcastFirstLine = (row != null) ? row.getPromptFirstLine() : firstLine;
             String broadcastAssistantPreview = (row != null) ? row.getAssistantPreview() : assistantPreview;
+            boolean broadcastQHidden = (row != null) ? row.isQuestionHidden() : questionHidden;
+            boolean broadcastAHidden = (row != null) ? row.isAnswerHidden() : answerHidden;
             TeamFeedMessage msg = new TeamFeedMessage(
                 eventKind,
                 userId,
@@ -148,6 +162,8 @@ public class ActivityIngestService {
                 cliKind,
                 todayTokens,
                 todayDurationSec,
+                broadcastQHidden,
+                broadcastAHidden,
                 occurredAt
             );
             broker.convertAndSend("/topic/team/" + team.getTeamCode(), msg);

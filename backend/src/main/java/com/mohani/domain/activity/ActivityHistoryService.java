@@ -69,7 +69,9 @@ public class ActivityHistoryService {
         int toolUseCount,
         int responseTokens,
         String eventKind,
-        String cliKind
+        String cliKind,
+        boolean questionHidden,
+        boolean answerHidden
     ) {
         static ActivityHistoryItem from(ActivityLog log) {
             return new ActivityHistoryItem(
@@ -82,7 +84,9 @@ public class ActivityHistoryService {
                 log.getToolUseCount(),
                 log.getResponseTokens(),
                 log.getEventKind(),
-                log.getCliKind()
+                log.getCliKind(),
+                log.isQuestionHidden(),
+                log.isAnswerHidden()
             );
         }
     }
@@ -98,7 +102,9 @@ public class ActivityHistoryService {
         int toolUseCount,
         int responseTokens,
         String eventKind,
-        String cliKind
+        String cliKind,
+        boolean questionHidden,
+        boolean answerHidden
     ) {
         static FeedItem from(FeedRow row) {
             return new FeedItem(
@@ -112,7 +118,9 @@ public class ActivityHistoryService {
                 row.getToolUseCount() == null ? 0 : row.getToolUseCount(),
                 row.getResponseTokens() == null ? 0 : row.getResponseTokens(),
                 row.getEventKind(),
-                row.getCliKind()
+                row.getCliKind(),
+                Boolean.TRUE.equals(row.getQuestionHidden()),
+                Boolean.TRUE.equals(row.getAnswerHidden())
             );
         }
     }

@@ -1,5 +1,6 @@
 // 백엔드 + 로컬 데몬 HTTP 클라이언트.
-const AGENT_PORTS = [24555, 24556, 24557];
+// dev Electron → 24565 (dev 데몬), prod Electron → 24555 (글로벌 mohani 데몬). 단일 포트.
+const AGENT_PORT = import.meta.env.DEV ? 24565 : 24555;
 
 // H1: 데몬 호출 시 Authorization: Bearer <localSecret> 필요.
 // preload IPC로 한 번 받아서 캐시. Electron 환경 외(Vite 단독 실행)에선 null → 데몬 401.
@@ -155,47 +156,49 @@ async function agentHeaders(extra = {}) {
   };
 }
 
+const AGENT_BASE = `http://127.0.0.1:${AGENT_PORT}`;
+
 export async function getAgentState() {
   const headers = await agentHeaders();
-  for (const port of AGENT_PORTS) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${port}/state`, { cache: 'no-store', headers });
-      if (r.ok) return { port, state: await r.json() };
-    } catch {}
-  }
-  return null;
+  try {
+    const r = await fetch(`${AGENT_BASE}/state`, { cache: 'no-store', headers });
+    if (!r.ok) return null;
+    return { port: AGENT_PORT, state: await r.json() };
+  } catch { return null; }
 }
 
 export async function setAgentPrivacy(isPrivate) {
   const headers = await agentHeaders({ 'content-type': 'application/json' });
-  for (const port of AGENT_PORTS) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${port}/state/privacy`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ isPrivate }),
-      });
-      if (r.ok) return await r.json();
-    } catch {}
-  }
-  return null;
+  try {
+    const r = await fetch(`${AGENT_BASE}/state/privacy`, {
+      method: 'POST', headers, body: JSON.stringify({ isPrivate }),
+    });
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
+}
+
+// 본문 숨김 토글 — { hideQuestion?: bool, hideAnswer?: bool } 부분 갱신.
+// 데몬에서 영구 저장(~/.mohani/config.json) — 재시작 후에도 유지.
+export async function setAgentVisibility(patch) {
+  const headers = await agentHeaders({ 'content-type': 'application/json' });
+  try {
+    const r = await fetch(`${AGENT_BASE}/state/visibility`, {
+      method: 'POST', headers, body: JSON.stringify(patch),
+    });
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
 }
 
 // 로그인 후 데몬이 토큰을 모르면 hook 이벤트를 백엔드로 못 보낸다 — 즉시 동기화한다.
 export async function pushAgentSession({ token, userId, displayName }) {
   const backendUrl = getBackendUrl();
   const headers = await agentHeaders({ 'content-type': 'application/json' });
-  for (const port of AGENT_PORTS) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${port}/state/session`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ token, userId, displayName, backendUrl }),
-      });
-      if (r.ok) return await r.json();
-    } catch {}
-  }
-  return null;
+  try {
+    const r = await fetch(`${AGENT_BASE}/state/session`, {
+      method: 'POST', headers, body: JSON.stringify({ token, userId, displayName, backendUrl }),
+    });
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
 }
 
 export function generateDeviceId() {

@@ -9,12 +9,15 @@ import org.springframework.data.repository.query.Param;
 
 public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> {
 
-    // 멤버 활동 드로어 — 질문이나 답변 둘 중 하나라도 있는 의미 있는 row만 반환.
+    // 멤버 활동 드로어 — 질문이나 답변 둘 중 하나라도 있거나, 사용자가 명시적으로
+    // 숨김 처리한 row(자리는 보여야 함)도 회수.
     @Query("""
         SELECT a FROM ActivityLog a
         WHERE a.teamId = :teamId AND a.userId = :userId
           AND ( (a.promptFirstLine IS NOT NULL AND a.promptFirstLine <> '')
-             OR (a.assistantPreview IS NOT NULL AND a.assistantPreview <> '') )
+             OR (a.assistantPreview IS NOT NULL AND a.assistantPreview <> '')
+             OR a.questionHidden = true
+             OR a.answerHidden = true )
         ORDER BY a.occurredAt DESC
     """)
     List<ActivityLog> findByTeamIdAndUserIdOrderByOccurredAtDesc(@Param("teamId") Long teamId,
@@ -23,6 +26,7 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> 
 
     // turn 매칭용 — 같은 (user, cli, team) 의 가장 최근 미응답(UserPromptSubmit) row 찾기.
     // Stop이 도착하면 이 row에 assistant 정보를 합친다(같은 row update).
+    // answerHidden=true는 "답변이 도착했지만 사용자가 본문을 숨김"이라 unanswered가 아님.
     @Query("""
         SELECT a FROM ActivityLog a
         WHERE a.userId = :userId
@@ -30,6 +34,7 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> 
           AND a.cliKind = :cliKind
           AND a.eventKind = 'UserPromptSubmit'
           AND a.assistantPreview IS NULL
+          AND a.answerHidden = false
           AND a.occurredAt >= :since
         ORDER BY a.occurredAt DESC
     """)
@@ -65,9 +70,11 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> 
         Integer getResponseTokens();
         String getEventKind();
         String getCliKind();
+        Boolean getQuestionHidden();
+        Boolean getAnswerHidden();
     }
 
-    // 팀 전체 시간순 피드 — UserPromptSubmit + 비어있지 않은 prompt만 (노이즈 제거)
+    // 팀 전체 시간순 피드 — UserPromptSubmit + 비어있지 않은 prompt 또는 questionHidden row.
     @Query("""
         SELECT a.id AS id,
                a.occurredAt AS occurredAt,
@@ -79,13 +86,15 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> 
                a.toolUseCount AS toolUseCount,
                a.responseTokens AS responseTokens,
                a.eventKind AS eventKind,
-               a.cliKind AS cliKind
+               a.cliKind AS cliKind,
+               a.questionHidden AS questionHidden,
+               a.answerHidden AS answerHidden
         FROM ActivityLog a
         JOIN User u ON u.id = a.userId
         WHERE a.teamId = :teamId
           AND a.eventKind = 'UserPromptSubmit'
-          AND a.promptFirstLine IS NOT NULL
-          AND a.promptFirstLine <> ''
+          AND ( (a.promptFirstLine IS NOT NULL AND a.promptFirstLine <> '')
+             OR a.questionHidden = true )
         ORDER BY a.occurredAt DESC
     """)
     List<FeedRow> findTeamFeed(@Param("teamId") Long teamId, Pageable pageable);

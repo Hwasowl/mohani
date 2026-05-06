@@ -61,12 +61,21 @@ public class ActivityLog {
     @Column(name = "cli_kind", nullable = false, length = 16)
     private String cliKind;
 
+    // 사용자가 환경설정에서 켠 "질문 숨김" 토글이 적용된 row. true면 prompt_* 컬럼은 NULL.
+    @Column(name = "question_hidden", nullable = false)
+    private boolean questionHidden;
+
+    // 답변 숨김 토글. true면 assistant_* 컬럼은 NULL.
+    @Column(name = "answer_hidden", nullable = false)
+    private boolean answerHidden;
+
     @Builder
     private ActivityLog(Long sessionId, Long userId, Long teamId, OffsetDateTime occurredAt,
                         String promptFirstLine, String promptFull,
                         String assistantPreview, String assistantFull,
                         int toolUseCount, int responseTokens,
-                        String eventKind, String cliKind) {
+                        String eventKind, String cliKind,
+                        boolean questionHidden, boolean answerHidden) {
         this.sessionId = sessionId;
         this.userId = userId;
         this.teamId = teamId;
@@ -79,13 +88,17 @@ public class ActivityLog {
         this.responseTokens = responseTokens;
         this.eventKind = eventKind;
         this.cliKind = cliKind == null ? "claude" : cliKind;
+        this.questionHidden = questionHidden;
+        this.answerHidden = answerHidden;
     }
 
     // turn 응답 도착 시 in-place update — INSERT 두 번 안 만들고 같은 row에 합친다.
-    public void attachAssistantTurn(String preview, String full, int toolUseCount, int responseTokens) {
+    public void attachAssistantTurn(String preview, String full, int toolUseCount, int responseTokens,
+                                    boolean answerHidden) {
         this.assistantPreview = preview;
         this.assistantFull = full;
         this.toolUseCount = toolUseCount;
         this.responseTokens = responseTokens;
+        this.answerHidden = answerHidden;
     }
 }

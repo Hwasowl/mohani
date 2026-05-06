@@ -138,7 +138,7 @@ class ActivityIngestServiceTest {
         // assistant 정보가 전혀 없는 Stop — 응답 토큰만 있는 케이스
         ActivityEventDto stop = new ActivityEventDto(
             "Stop", "s1", null, null, null, null, null, null, null,
-            500L, 30, "claude", OffsetDateTime.now()
+            500L, 30, "claude", null, null, OffsetDateTime.now()
         );
         service.ingest(7L, stop);
 
@@ -151,7 +151,7 @@ class ActivityIngestServiceTest {
     void preToolUse_doesNotPersistRow_butUpdatesStats() {
         ActivityEventDto evt = new ActivityEventDto(
             "PreToolUse", "s1", null, null, null, null, null, null, "Bash",
-            null, 5, "claude", OffsetDateTime.now()
+            null, 5, "claude", null, null, OffsetDateTime.now()
         );
         service.ingest(7L, evt);
 
@@ -168,7 +168,8 @@ class ActivityIngestServiceTest {
         ActivityEventDto evt = new ActivityEventDto(
             "UserPromptSubmit", "s1", null, "안전한 첫 줄",
             "안전 첫줄\n그런데 본문에 leaked AKIAIOSFODNN7EXAMPLE here",
-            null, null, null, null, null, null, "claude", OffsetDateTime.now()
+            null, null, null, null, null, null, "claude",
+            null, null, OffsetDateTime.now()
         );
 
         IngestResult result = service.ingest(7L, evt);
@@ -203,17 +204,127 @@ class ActivityIngestServiceTest {
         verify(broker, never()).convertAndSend(any(String.class), any(Object.class));
     }
 
+    // ── 질문/답변 숨김 토글 (활동 자체는 송신, 본문만 redact) ──
+
+    @Test
+    void userPromptSubmit_questionHidden_persistsRowWithNullBodyAndFlag() {
+        ActivityEventDto evt = userPrompt("민감 첫 줄", "민감 본문", true);
+
+        service.ingest(7L, evt);
+
+        ArgumentCaptor<ActivityLog> log = ArgumentCaptor.forClass(ActivityLog.class);
+        verify(activities, times(1)).save(log.capture());
+        // 본문 NULL이지만 자리는 보존 — eventKind는 그대로
+        assertThat(log.getValue().getEventKind()).isEqualTo("UserPromptSubmit");
+        assertThat(log.getValue().getPromptFirstLine()).isNull();
+        assertThat(log.getValue().getPromptFull()).isNull();
+        assertThat(log.getValue().isQuestionHidden()).isTrue();
+        assertThat(log.getValue().isAnswerHidden()).isFalse();
+
+        ArgumentCaptor<TeamFeedMessage> msg = ArgumentCaptor.forClass(TeamFeedMessage.class);
+        verify(broker, times(1)).convertAndSend(eq("/topic/team/ABC123"), msg.capture());
+        assertThat(msg.getValue().questionHidden()).isTrue();
+        assertThat(msg.getValue().promptFirstLine()).isNull();
+    }
+
+    @Test
+    void stop_answerHidden_attachesToTurn_redactsAnswerKeepsTokens() throws Exception {
+        // 미응답 turn 1건 존재
+        ActivityLog existing = ActivityLog.builder()
+            .userId(7L).teamId(100L)
+            .occurredAt(OffsetDateTime.now().minusMinutes(2))
+            .promptFirstLine("질문 첫 줄").promptFull("질문 전체")
+            .eventKind("UserPromptSubmit").cliKind("claude")
+            .questionHidden(false).answerHidden(false)
+            .build();
+        setId(existing, 555L);
+        when(activities.findUnansweredTurns(eq(7L), eq(100L), eq("claude"), any(), any(Pageable.class)))
+            .thenReturn(new ArrayList<>(List.of(existing)));
+
+        // 답변 숨김 ON Stop — 클라가 답변 본문은 null로 보냄, answerHidden=true
+        ActivityEventDto stop = stopWithAnswer(null, null, 3, 1500L, true);
+        service.ingest(7L, stop);
+
+        verify(activities, never()).save(any(ActivityLog.class)); // in-place update
+        assertThat(existing.getAssistantPreview()).isNull();
+        assertThat(existing.getAssistantFull()).isNull();
+        assertThat(existing.isAnswerHidden()).isTrue();
+        // 토큰/도구는 보존 (사용자 명시 요구)
+        assertThat(existing.getResponseTokens()).isEqualTo(1500);
+        assertThat(existing.getToolUseCount()).isEqualTo(3);
+
+        ArgumentCaptor<TeamFeedMessage> msg = ArgumentCaptor.forClass(TeamFeedMessage.class);
+        verify(broker).convertAndSend(eq("/topic/team/ABC123"), msg.capture());
+        assertThat(msg.getValue().answerHidden()).isTrue();
+        assertThat(msg.getValue().assistantPreview()).isNull();
+        assertThat(msg.getValue().todayTokens()).isEqualTo(0L); // stub stat
+    }
+
+    @Test
+    void stop_answerHidden_withoutMatchingTurn_insertsNewRow() {
+        ActivityEventDto stop = stopWithAnswer(null, null, 0, 200L, true);
+
+        service.ingest(7L, stop);
+
+        ArgumentCaptor<ActivityLog> log = ArgumentCaptor.forClass(ActivityLog.class);
+        verify(activities, times(1)).save(log.capture());
+        assertThat(log.getValue().getEventKind()).isEqualTo("Stop");
+        assertThat(log.getValue().getAssistantPreview()).isNull();
+        assertThat(log.getValue().isAnswerHidden()).isTrue();
+        assertThat(log.getValue().getResponseTokens()).isEqualTo(200);
+    }
+
+    @Test
+    void serverEnforcesRedaction_evenIfClientSendsBodyByMistake() {
+        // 방어층 — 클라가 questionHidden=true와 함께 본문도 보내도, 서버가 NULL로 강제.
+        ActivityEventDto evt = new ActivityEventDto(
+            "UserPromptSubmit", "s1", "/tmp", "어쩌다 본문", "어쩌다 전체",
+            null, null, null, null, null, null, "claude",
+            true, null, OffsetDateTime.now()
+        );
+
+        service.ingest(7L, evt);
+
+        ArgumentCaptor<ActivityLog> log = ArgumentCaptor.forClass(ActivityLog.class);
+        verify(activities, times(1)).save(log.capture());
+        assertThat(log.getValue().getPromptFirstLine()).isNull();
+        assertThat(log.getValue().getPromptFull()).isNull();
+        assertThat(log.getValue().isQuestionHidden()).isTrue();
+    }
+
+    @Test
+    void noFlags_defaultBroadcastsHiddenFalse_regression() {
+        // 회귀 — 토글 안 켠 일반 경로에서 hidden 플래그가 모두 false로 전달되는지 확인.
+        ActivityEventDto evt = userPrompt("평범한 질문", "본문");
+        service.ingest(7L, evt);
+
+        ArgumentCaptor<TeamFeedMessage> msg = ArgumentCaptor.forClass(TeamFeedMessage.class);
+        verify(broker, times(1)).convertAndSend(eq("/topic/team/ABC123"), msg.capture());
+        assertThat(msg.getValue().questionHidden()).isFalse();
+        assertThat(msg.getValue().answerHidden()).isFalse();
+    }
+
     private static ActivityEventDto userPrompt(String firstLine, String full) {
+        return userPrompt(firstLine, full, false);
+    }
+
+    private static ActivityEventDto userPrompt(String firstLine, String full, boolean questionHidden) {
         return new ActivityEventDto(
             "UserPromptSubmit", "s1", "/tmp", firstLine, full,
-            null, null, null, null, null, null, "claude", OffsetDateTime.now()
+            null, null, null, null, null, null, "claude",
+            questionHidden, null, OffsetDateTime.now()
         );
     }
 
     private static ActivityEventDto stopWithAnswer(String preview, String full, int toolUse, Long tokens) {
+        return stopWithAnswer(preview, full, toolUse, tokens, false);
+    }
+
+    private static ActivityEventDto stopWithAnswer(String preview, String full, int toolUse, Long tokens, boolean answerHidden) {
         return new ActivityEventDto(
             "Stop", "s1", null, null, null,
-            preview, full, toolUse, null, tokens, null, "claude", OffsetDateTime.now()
+            preview, full, toolUse, null, tokens, null, "claude",
+            null, answerHidden, OffsetDateTime.now()
         );
     }
 

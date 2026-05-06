@@ -139,6 +139,20 @@ button { font-family: inherit; }
   color: var(--bad);
   border: 1px solid rgba(248,113,113,0.25);
 }
+.status-chip.muted {
+  background: rgba(255,255,255,0.05);
+  color: var(--text-dim);
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+/* 본문 숨김처리 placeholder — 실제 본문보다 옅게 + italic */
+.prompt-hidden,
+.turn-hidden .turn-text,
+.feed-hidden {
+  color: var(--text-mute) !important;
+  font-style: italic;
+  letter-spacing: 0.02em;
+}
 
 .header-actions { position: relative; }
 .me-button {

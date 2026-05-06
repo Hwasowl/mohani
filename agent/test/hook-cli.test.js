@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createApp, listenWithFallback } from '../src/daemon.js';
+import { createApp, listen } from '../src/daemon.js';
 import { buildPayload, sendToDaemon } from '../src/hook-cli.js';
 
 describe('hook-cli buildPayload', () => {
@@ -53,7 +53,7 @@ describe('hook-cli sendToDaemon — end-to-end', () => {
       onEvent: (e) => seen.push(e),
       getConfig: () => ({ localSecret: TEST_SECRET }),
     });
-    const result = await listenWithFallback(app, [44555, 44556, 44557]);
+    const result = await listen(app, 44555);
     server = result.server;
     port = result.port;
   });

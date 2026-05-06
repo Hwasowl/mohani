@@ -14,7 +14,8 @@ import { pathToFileURL } from 'node:url';
 import { load as loadConfig } from './config-store.js';
 
 const HOST = env.MOHANI_AGENT_HOST || '127.0.0.1';
-const PORTS = (env.MOHANI_AGENT_PORTS || '24555,24556,24557').split(',').map(Number);
+// dev 데몬(24565) 떠있으면 거기로, 없으면 prod(24555). dev 끝나면 자동 prod fallback.
+const PORTS = (env.MOHANI_AGENT_PORTS || '24565,24555').split(',').map(Number);
 const TIMEOUT_MS = Number(env.MOHANI_HOOK_TIMEOUT_MS || 1500);
 
 // H1: ~/.mohani/config.json에서 localSecret 읽어 헤더 첨부.

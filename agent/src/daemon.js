@@ -10,8 +10,12 @@ import { normalizeEvent } from './events.js';
 import { detectSuspicious, maskBody, maskFirstLine, previewLines } from './masking.js';
 import { readLastAssistantTurn, readLastAssistantUsage } from './transcript.js';
 import { createTransport } from './transport.js';
+import { applyVisibility } from './visibility.js';
 
-const PORT_CANDIDATES = [24555, 24556, 24557];
+// prod 데몬: 24555 (글로벌 `mohani start`)
+// dev 데몬:  --dev 인자로 띄우면 24565 — prod와 동시 기동해도 충돌 X
+const IS_DEV = process.argv.includes('--dev');
+const PORT = IS_DEV ? 24565 : 24555;
 // hook 이벤트 사이 간격이 이 값을 넘으면 "잠수" — 시간 누적 안함 (자리 비움 시간 차단)
 const ACTIVE_GAP_CAP_SEC = 60;
 
@@ -53,7 +57,7 @@ export function createApp(state = {}) {
     res.json({ ok: true, version: '0.1.0', queueDepth: state.transport?.queueDepth?.() ?? 0 });
   });
 
-  // Electron이 데몬에서 현재 사용자 정보·비공개 토글을 폴링/제어할 때 사용.
+  // Electron이 데몬에서 현재 사용자 정보·비공개 토글·숨김 토글을 폴링/제어할 때 사용.
   app.get('/state', requireLocalSecret, (_req, res) => {
     const cfg = state.getConfig?.() ?? {};
     res.json({
@@ -62,6 +66,8 @@ export function createApp(state = {}) {
       displayName: cfg.displayName ?? null,
       backendUrl: cfg.backendUrl ?? null,
       isPrivate: cfg.isPrivate ?? false,
+      hideQuestion: cfg.hideQuestion ?? false,
+      hideAnswer: cfg.hideAnswer ?? false,
       blacklistedDirs: cfg.blacklistedDirs ?? [],
     });
   });
@@ -72,6 +78,23 @@ export function createApp(state = {}) {
     save({ ...cfg, isPrivate: next });
     state.refreshConfig?.();
     res.json({ ok: true, isPrivate: next });
+  });
+
+  // 질문/답변 숨김 토글 — 본문만 redact, 활동 자체는 노출(오프라인 모드와 다른 점).
+  // 두 필드는 독립 토글. body에 명시된 것만 갱신, 누락된 건 기존값 보존.
+  app.post('/state/visibility', requireLocalSecret, (req, res) => {
+    const cfg = state.getConfig?.() ?? {};
+    const body = req.body ?? {};
+    const next = { ...cfg };
+    if ('hideQuestion' in body) next.hideQuestion = Boolean(body.hideQuestion);
+    if ('hideAnswer' in body) next.hideAnswer = Boolean(body.hideAnswer);
+    save(next);
+    state.refreshConfig?.();
+    res.json({
+      ok: true,
+      hideQuestion: next.hideQuestion ?? false,
+      hideAnswer: next.hideAnswer ?? false,
+    });
   });
 
   // Electron이 로그인 후 데몬에 토큰을 주입 — hook이 백엔드로 흘러가게 만든다.
@@ -141,40 +164,34 @@ export function createApp(state = {}) {
       }
     }
 
-    state.lastEvent = result.normalized;
-    if (state.onEvent) state.onEvent(result.normalized);
+    // 송신 직전 — 사용자가 켠 질문/답변 숨김 토글에 따라 본문만 redact.
+    // (오프라인 상태/blacklist는 위에서 dropped로 끝났음)
+    const toSend = applyVisibility(result.normalized, {
+      hideQuestion: cfg.hideQuestion ?? false,
+      hideAnswer: cfg.hideAnswer ?? false,
+    });
+
+    state.lastEvent = toSend;
+    if (state.onEvent) state.onEvent(toSend);
 
     let backend = null;
     if (state.transport) {
-      backend = await state.transport.send(result.normalized);
+      backend = await state.transport.send(toSend);
     }
 
-    return res.json({ ok: true, normalized: result.normalized, backend });
+    return res.json({ ok: true, normalized: toSend, backend });
   });
 
   return app;
 }
 
-export function listenWithFallback(app, ports = PORT_CANDIDATES) {
+// 단일 포트에 listen — 점유돼있으면 그대로 fail (사용자가 충돌 인지하도록).
+// 127.0.0.1 강제 — LAN 노출 차단.
+export function listen(app, port = PORT) {
   return new Promise((resolve, reject) => {
-    let idx = 0;
-    const tryNext = () => {
-      if (idx >= ports.length) {
-        return reject(new Error(`all candidate ports exhausted: ${ports.join(',')}`));
-      }
-      const port = ports[idx++];
-      // 127.0.0.1로 바인딩 강제 — LAN 노출 차단. (LAN 공격자가 토큰/backendUrl 덮어쓰기 가능했던 표면 제거)
-      const server = app.listen(port, '127.0.0.1');
-      server.once('listening', () => resolve({ server, port }));
-      server.once('error', (err) => {
-        if (err.code === 'EADDRINUSE') {
-          tryNext();
-        } else {
-          reject(err);
-        }
-      });
-    };
-    tryNext();
+    const server = app.listen(port, '127.0.0.1');
+    server.once('listening', () => resolve({ server, port }));
+    server.once('error', reject);
   });
 }
 
@@ -193,7 +210,7 @@ export async function dispatchCodexUserMessage({ message, occurredAt }, { getCon
   }
 
   if (!transport) return { dropped: true, reason: 'no_transport' };
-  return transport.send({
+  const payload = applyVisibility({
     event: 'UserPromptSubmit',
     sessionId: null,
     cwd: null,
@@ -204,7 +221,8 @@ export async function dispatchCodexUserMessage({ message, occurredAt }, { getCon
     durationDeltaSec: null,
     cliKind: 'codex',
     occurredAt: occurredAt ?? new Date().toISOString(),
-  });
+  }, { hideQuestion: cfg.hideQuestion ?? false, hideAnswer: cfg.hideAnswer ?? false });
+  return transport.send(payload);
 }
 
 // Codex agent_message — 백엔드에 Stop 이벤트로 보내서 직전 user_message turn에 합치게 한다.
@@ -221,7 +239,7 @@ export async function dispatchCodexAssistantMessage({ message, occurredAt }, { g
   const preview = previewLines(fullMasked, { maxLines: 3, maxChars: 500 });
 
   if (!transport) return { dropped: true, reason: 'no_transport' };
-  return transport.send({
+  const payload = applyVisibility({
     event: 'Stop',
     sessionId: null,
     cwd: null,
@@ -232,7 +250,8 @@ export async function dispatchCodexAssistantMessage({ message, occurredAt }, { g
     durationDeltaSec: null,
     cliKind: 'codex',
     occurredAt: occurredAt ?? new Date().toISOString(),
-  });
+  }, { hideQuestion: cfg.hideQuestion ?? false, hideAnswer: cfg.hideAnswer ?? false });
+  return transport.send(payload);
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
@@ -276,9 +295,9 @@ if (isMain) {
   codexWatcher.start();
 
   const app = createApp(state);
-  listenWithFallback(app)
+  listen(app)
     .then(({ port }) => {
-      console.log(`[mohani-agent] listening on http://127.0.0.1:${port}`);
+      console.log(`[mohani-agent] listening on http://127.0.0.1:${port} ${IS_DEV ? '(DEV)' : '(PROD)'}`);
       console.log(`[mohani-agent] backend=${cfg.backendUrl} loggedIn=${Boolean(cfg.token)}`);
       console.log(`[mohani-agent] codex watcher started`);
     })
