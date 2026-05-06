@@ -65,7 +65,9 @@ export function getBackendUrl() {
   const stored = localStorage.getItem('mohani.backendUrl');
   if (stored) return stored;
   const baked = import.meta.env.VITE_MOHANI_BACKEND_URL;
-  return baked || 'http://localhost:8080';
+  // PROD 폴백을 Render upstream으로 — CI가 VITE_MOHANI_BACKEND_URL을 안 박아도
+  // 배포 exe가 localhost:8080으로 떨어지는 사고 방지. fork는 vars.VITE_MOHANI_BACKEND_URL로 override.
+  return baked || 'https://mohani.onrender.com';
 }
 
 export function setBackendUrl(url) {
