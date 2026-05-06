@@ -1,6 +1,6 @@
 # Mohani (뭐하니)
 
-> 동료들이 CLI에서 무슨 작업을 하는지, 토큰은 얼마나 쓰는지 real-time으로 확인할 수 있습니다~
+> 동료들이 CLI에서 무슨 작업을 하는지, 토큰은 얼마나 쓰는지 real-time으로 확인할 수 있습니다
 
 [![npm](https://img.shields.io/npm/v/mohani)](https://www.npmjs.com/package/mohani)
 [![publish](https://github.com/Hwasowl/mohani/actions/workflows/publish-agent.yml/badge.svg)](https://github.com/Hwasowl/mohani/actions/workflows/publish-agent.yml)
@@ -29,8 +29,11 @@
 graph TB
     CC[Claude Code]
 
+    Codex[Codex CLI]
+
     subgraph Client["Desktop Client"]
-        Hook[Hook Bridge<br/>/.claude/settings.json]
+        Hook[Hook Bridge<br/>~/.claude/settings.json]
+        Watcher[Codex Watcher<br/>~/.codex/sessions/*.jsonl tail]
         Daemon[Local Daemon<br/>:24555]
         Renderer[Electron Renderer<br/>Vite Bundle]
     end
@@ -45,6 +48,8 @@ graph TB
 
     CC -->|hook 호출| Hook
     Hook --> Daemon
+    Codex -.->|세션 jsonl 기록| Watcher
+    Watcher --> Daemon
     Daemon -->|REST 이벤트 송신| Server
     Renderer <-->|REST + STOMP 구독| Server
     Renderer -->|이미지 업로드| ImgBB
@@ -54,8 +59,9 @@ graph TB
 
 | 요소 | 책임 |
 |---|---|
-| **Hook Bridge** | Claude Code의 `~/.claude/settings.json`에 안전 머지된 명령들 — 이벤트 진입점 |
-| **Local Daemon** | Hook 이벤트 수신, **마스킹** 적용, **활동** 직렬화, 서버 송신 |
+| **Hook Bridge** | Claude Code의 `~/.claude/settings.json`에 안전 머지된 명령들 — 이벤트 진입점. `Stop` 이벤트에서 `transcript_path`로 전달된 JSONL을 재파싱해 정확한 토큰·마지막 assistant turn 추출 |
+| **Codex Watcher** | Codex CLI는 hook이 없으므로 `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`을 tail하여 `user_message`/`agent_message`를 캡처 |
+| **Local Daemon** | Hook 이벤트 + Codex 세션 입력 수신, **마스킹** 적용, **활동** 직렬화, 서버 송신 |
 | **Electron Renderer** | **친구 그리드**·**피드**·**비공개 모드** 토글 UI — 라이브 피드는 STOMP 구독으로 수신 |
 | **Application Server** | 인증·**팀**·**이벤트** 인제스트·STOMP 브로드캐스트 |
 | **PostgreSQL** | **활동**·**팀**·계정 영속 저장 |
@@ -72,67 +78,9 @@ graph TB
 
 ---
 
-## 2. 개발환경 Quick Start
+## 2. 시작하기
 
-### 사전 준비
-- **Java 17** (`gradle.properties`에 JDK 17 경로 지정)
-- **Node 20+**
-- **Docker** (Postgres + Redis용)
-- 빌드 디렉토리는 `C:/tmp/mohani-build` 로 우회 — OneDrive 한글 경로 회피
-
-### 1) Persistence Tier
 ```bash
-cd backend
-docker compose up -d
+npm i -g mohani
+mohani start
 ```
-
-### 2) Application Server
-```bash
-cd backend
-./gradlew.bat bootRun
-# → http://localhost:8080 listen
-```
-
-### 3) Local Daemon
-```bash
-cd agent
-npm install
-npm link            # mohani 명령을 전역 연결
-npm start           # daemon이 :24555 listen
-```
-
-별도 터미널에서:
-```bash
-mohani login --name=화소 --backend=http://localhost:8080
-mohani team create "데모팀"
-# → "team code: ABC123" — 친구한테 공유
-```
-
-### 4) Renderer (Vite Dev Server + Electron 동시)
-```bash
-cd electron
-npm install
-npm run dev
-```
-Vite가 `:5173`에 dev server를 띄우고 Electron이 그 URL을 로드 → HMR 활성화.
-
-### 5) Hook Bridge 등록 (개발 모드 한정)
-글로벌 설치 시 자동 머지되지만, `npm link` 모드에선 한 번 수동 등록:
-
-`~/.claude/settings.json`의 각 hook 배열에 추가:
-```json
-{
-  "matcher": "",
-  "hooks": [{
-    "type": "command",
-    "command": "node \"<레포경로>/mohani/agent/src/hook-cli.js\" --event=UserPromptSubmit"
-  }]
-}
-```
-이벤트 종류: `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SessionStart`, `SessionEnd`, `Stop`.
-
-### 6) 동작 확인
-- A의 Claude Code에서 "redis sorted set 페이징 알려줘" 입력
-- B의 Renderer **친구 그리드**에 A 카드 활성화 → 프롬프트·도구 결과·토큰 누적 표시
-- A가 우상단 **비공개 모드** 토글 → B 화면에서 A 카드 idle 전환
-- A가 비공개 해제 → 다음 활동부터 다시 노출
