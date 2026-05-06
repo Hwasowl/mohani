@@ -14,6 +14,8 @@ npm i -g mohani
 mohani start
 ```
 
+> **개발에 참여하고 싶다면**: [devsetting.md](./devsetting.md) — 한 줄 (`npm run dev`)로 백엔드 + 에이전트 + Electron + 인프라 한 번에 기동.
+
 ---
 
 ## 1. 기능 소개
