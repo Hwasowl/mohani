@@ -7,7 +7,16 @@
 
 ---
 
-## 0. 기능 소개
+## 0. 시작하기
+
+```bash
+npm i -g mohani
+mohani start
+```
+
+---
+
+## 1. 기능 소개
 
 | 용어 | 의미 |
 |---|---|
@@ -23,7 +32,7 @@
 
 ---
 
-## 1. 시스템 아키텍처
+## 2. 시스템 아키텍처
 
 ```mermaid
 graph TB
@@ -76,11 +85,3 @@ graph TB
 | `agent/` | Node 20 글로벌 npm `mohani` — Local Daemon + Hook Bridge + CLI |
 | `electron/` | Electron + Vite + React + STOMP.js — Renderer |
 
----
-
-## 2. 시작하기
-
-```bash
-npm i -g mohani
-mohani start
-```
