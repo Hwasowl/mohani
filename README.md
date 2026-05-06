@@ -14,7 +14,7 @@ npm i -g mohani
 mohani start
 ```
 
-> **Windows 설치 파일로 받고 싶다면**: [Releases](https://github.com/Hwasowl/mohani/releases?q=desktop-v) 에서 최신 `Mohani-Setup-*.exe` 다운로드 → 실행. (Node 환경 없이 바로 사용)
+> **Windows 설치 파일로 받고 싶다면**: [Releases 페이지](https://github.com/Hwasowl/mohani/releases/latest) → `Mohani-Setup-*.exe` 다운로드 → 실행. (Node 환경 없이 바로 사용)
 
 > **개발에 참여하고 싶다면**: [devsetting.md](./devsetting.md) — 한 줄 (`npm run dev`)로 백엔드 + 에이전트 + Electron + 인프라 한 번에 기동.
 
