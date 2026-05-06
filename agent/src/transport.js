@@ -85,6 +85,9 @@ export function toBackendDto(normalized) {
     totalTokens: normalized.totalTokens ?? null,
     durationDeltaSec: normalized.durationDeltaSec ?? null,
     cliKind: normalized.cliKind ?? null,
+    // applyVisibility로 켜진 질문/답변 숨김 플래그 — 빠뜨리면 백엔드가 "본문 없는 이벤트"로 오인.
+    questionHidden: normalized.questionHidden ?? false,
+    answerHidden: normalized.answerHidden ?? false,
     occurredAt: normalized.occurredAt,
   };
 }

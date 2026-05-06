@@ -19,6 +19,24 @@ describe('toBackendDto', () => {
       occurredAt: '2026-04-28T01:00:00Z',
     });
   });
+
+  it('forwards questionHidden/answerHidden flags so backend can mark redacted rows', () => {
+    const dto = toBackendDto({
+      event: 'Stop',
+      assistantPreview: null,
+      assistantFull: null,
+      answerHidden: true,
+      occurredAt: 'now',
+    });
+    expect(dto.answerHidden).toBe(true);
+    expect(dto.questionHidden).toBe(false);
+  });
+
+  it('defaults questionHidden/answerHidden to false when missing', () => {
+    const dto = toBackendDto({ event: 'UserPromptSubmit', occurredAt: 'now' });
+    expect(dto.questionHidden).toBe(false);
+    expect(dto.answerHidden).toBe(false);
+  });
 });
 
 describe('createTransport', () => {

@@ -123,6 +123,12 @@ ipcMain.handle('mohani:flash-frame', (e, on) => {
   win.flashFrame(!!on);
 });
 
+function broadcastChatWindowOpen(open) {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('mohani:chat-window-changed', open);
+  }
+}
+
 function createChatWindow() {
   if (chatWindow && !chatWindow.isDestroyed()) {
     chatWindow.show();
@@ -157,7 +163,8 @@ function createChatWindow() {
   if (process.env.MOHANI_DEBUG === '1') {
     chatWindow.webContents.openDevTools({ mode: 'detach' });
   }
-  chatWindow.on('closed', () => { chatWindow = null; });
+  chatWindow.on('closed', () => { chatWindow = null; broadcastChatWindowOpen(false); });
+  broadcastChatWindowOpen(true);
   return chatWindow;
 }
 
@@ -168,6 +175,10 @@ ipcMain.handle('mohani:toggle-chat', () => {
   }
   createChatWindow();
   return { open: true };
+});
+
+ipcMain.handle('mohani:get-chat-window-open', () => {
+  return !!(chatWindow && !chatWindow.isDestroyed());
 });
 
 app.whenReady().then(() => {

@@ -128,6 +128,9 @@ function MainApp() {
   // 메인 컨텐츠 영역의 뷰 — 'main'(친구 그리드+피드) 또는 'dashboard'(랭킹 풀뷰)
   const [view, setView] = useState('main');
   const [chatOpen, setChatOpen] = useState(false);
+  // 채팅 팝업(별도 BrowserWindow)이 열려있는지 — main process가 broadcast.
+  // drawer(chatOpen)와 popup(chatPopupOpen) 둘 중 하나라도 열려있으면 "채팅 보고 있는 중"으로 간주.
+  const [chatPopupOpen, setChatPopupOpen] = useState(false);
   // 누가 타이핑 중인지: { [teamCode]: { [userId]: { displayName, expiresAt } } }
   const [typingByTeam, setTypingByTeam] = useState({});
   const teamClientRef = useRef(null);
@@ -162,15 +165,26 @@ function MainApp() {
   // chatOpen/activeTeamCode을 콜백 안에서 최신값으로 보려면 ref가 필요 — 안 그러면 stale closure
   const chatOpenRef = useRef(chatOpen);
   useEffect(() => { chatOpenRef.current = chatOpen; }, [chatOpen]);
+  const chatPopupOpenRef = useRef(chatPopupOpen);
+  useEffect(() => { chatPopupOpenRef.current = chatPopupOpen; }, [chatPopupOpen]);
   const activeTeamCodeRef = useRef(activeTeamCode);
   useEffect(() => { activeTeamCodeRef.current = activeTeamCode; }, [activeTeamCode]);
 
-  // 채팅 패널을 열거나 팀을 바꿀 때 해당 팀 미읽음 0으로 리셋
+  // 채팅 팝업 라이프사이클 구독 — 팝업 open/close될 때 chatPopupOpen 동기화
   useEffect(() => {
-    if (chatOpen && activeTeamCode && unreadByTeam[activeTeamCode]) {
+    if (!window.mohaniIpc?.onChatWindowChanged) return;
+    let alive = true;
+    window.mohaniIpc.getChatWindowOpen?.().then((v) => { if (alive) setChatPopupOpen(!!v); });
+    const off = window.mohaniIpc.onChatWindowChanged((open) => setChatPopupOpen(open));
+    return () => { alive = false; off?.(); };
+  }, []);
+
+  // 채팅 패널(drawer) 또는 채팅 팝업이 열리거나, 팀을 바꿀 때 해당 팀 미읽음 0으로 리셋
+  useEffect(() => {
+    if ((chatOpen || chatPopupOpen) && activeTeamCode && unreadByTeam[activeTeamCode]) {
       setUnreadByTeam((prev) => ({ ...prev, [activeTeamCode]: 0 }));
     }
-  }, [chatOpen, activeTeamCode]);
+  }, [chatOpen, chatPopupOpen, activeTeamCode]);
 
   // 타이핑 만료 정리 — 1초마다 체크해서 expiresAt 지난 항목 제거
   useEffect(() => {
@@ -459,9 +473,10 @@ function MainApp() {
           if (next.length > 200) next.splice(0, next.length - 200);
           return { ...prev, [teamCode]: next };
         });
-        // 본인이 보낸 게 아니고, 채팅 패널이 닫혀있거나 다른 팀이면 미읽음 +1
+        // 본인이 보낸 게 아니고, 채팅 drawer/팝업 둘 다 닫혀있거나 다른 팀이면 미읽음 +1
         const isMine = msg.userId === me.userId;
-        const isVisible = chatOpenRef.current && activeTeamCodeRef.current === teamCode;
+        const isVisible = (chatOpenRef.current || chatPopupOpenRef.current)
+          && activeTeamCodeRef.current === teamCode;
         if (!isMine && !isVisible) {
           setUnreadByTeam((prev) => ({ ...prev, [teamCode]: (prev[teamCode] ?? 0) + 1 }));
         }
