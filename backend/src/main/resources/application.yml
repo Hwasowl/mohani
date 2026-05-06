@@ -5,10 +5,9 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/mohani
     username: mohani
-    # H3 (0.1.12): 모든 환경에서 환경변수 강제 — 미설정 시 부팅 실패.
-    # MOHANI_JWT_SECRET 패턴과 동일. 로컬 dev는 IDE run config 또는 shell env로 'mohani' 주입.
-    # Render는 SPRING_DATASOURCE_PASSWORD가 이미 강한 값으로 설정되어 있으므로 변경 없이 동작.
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    # 로컬 default = 'mohani' (docker-compose.yml의 POSTGRES_PASSWORD와 일치).
+    # prod(Render 등)는 SPRING_DATASOURCE_PASSWORD env로 자동 override — 별도 profile 분리 불필요.
+    password: ${SPRING_DATASOURCE_PASSWORD:mohani}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -36,9 +35,10 @@ server:
 
 mohani:
   jwt:
-    # 모든 환경에서 환경변수 강제 — 미설정 시 부팅 실패. dev라도 random secret 1회 생성해 주입.
-    # JwtService가 추가로 length(>=32) + 약한 패턴(dev-secret 등) 거부 가드 적용.
-    secret: ${MOHANI_JWT_SECRET}
+    # 로컬 default = 32바이트 더미. prod는 MOHANI_JWT_SECRET env로 강제 override 필수.
+    # JwtService가 length(>=32) + 약한 패턴('dev-secret', 'change-me' 등) 거부 가드 적용 —
+    # prod env에 약한 값이 들어가면 부팅 실패하므로 약한 default가 prod로 새지 않음.
+    secret: ${MOHANI_JWT_SECRET:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
     ttl-seconds: 2592000   # 30일
 
 management:
